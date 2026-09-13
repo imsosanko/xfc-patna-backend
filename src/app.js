@@ -9,18 +9,19 @@ const memberRoutes = require('./routes/member.routes');
 const activityRoutes = require('./routes/activity.routes');
 const leaderboardRoutes = require('./routes/leaderboard.routes');
 const adminRoutes = require('./routes/admin.routes');
+const specialRoutes = require('./routes/special.routes');
 
 // Middlewares
 const errorHandler = require('./middlewares/errorHandler');
 
 const app = express();
 
-// ============================
-// SECURITY MIDDLEWARES
-// ============================
+// ═══════════════════════════════════════════
+// SECURITY
+// ═══════════════════════════════════════════
 app.use(helmet());
 
-// CORS configuration
+// CORS
 const allowedOrigins = [
   'http://localhost:5173',
   'http://localhost:3000',
@@ -30,10 +31,7 @@ const allowedOrigins = [
 
 app.use(cors({
   origin: (origin, callback) => {
-    // Allow requests with no origin (mobile apps, Postman, Telegram)
     if (!origin) return callback(null, true);
-    
-    // Allow localhost, netlify, vercel, ngrok
     if (
       allowedOrigins.includes(origin) ||
       /\.netlify\.app$/.test(origin) ||
@@ -44,30 +42,29 @@ app.use(cors({
     ) {
       return callback(null, true);
     }
-    
     callback(new Error('Not allowed by CORS'));
   },
   credentials: true,
 }));
 
-// ============================
+// ═══════════════════════════════════════════
 // BODY PARSING
-// ============================
+// ═══════════════════════════════════════════
 app.use(express.json({ limit: '2mb' }));
 app.use(express.urlencoded({ extended: true, limit: '2mb' }));
 
-// ============================
+// ═══════════════════════════════════════════
 // LOGGING
-// ============================
+// ═══════════════════════════════════════════
 if (process.env.NODE_ENV === 'development') {
   app.use(morgan('dev'));
 } else {
   app.use(morgan('combined'));
 }
 
-// ============================
+// ═══════════════════════════════════════════
 // HEALTH CHECK
-// ============================
+// ═══════════════════════════════════════════
 app.get('/api/health', (req, res) => {
   res.json({
     status: 'ok',
@@ -78,18 +75,19 @@ app.get('/api/health', (req, res) => {
   });
 });
 
-// ============================
+// ═══════════════════════════════════════════
 // API ROUTES
-// ============================
+// ═══════════════════════════════════════════
 app.use('/api/auth', authRoutes);
 app.use('/api/member', memberRoutes);
 app.use('/api/activities', activityRoutes);
 app.use('/api/leaderboard', leaderboardRoutes);
 app.use('/api/admin', adminRoutes);
+app.use('/api/special-activities', specialRoutes);
 
-// ============================
+// ═══════════════════════════════════════════
 // 404 HANDLER
-// ============================
+// ═══════════════════════════════════════════
 app.use((req, res) => {
   res.status(404).json({
     success: false,
@@ -97,9 +95,9 @@ app.use((req, res) => {
   });
 });
 
-// ============================
+// ═══════════════════════════════════════════
 // GLOBAL ERROR HANDLER
-// ============================
+// ═══════════════════════════════════════════
 app.use(errorHandler);
 
 module.exports = app;

@@ -13,45 +13,43 @@ const SpecialSubmissionSchema = new mongoose.Schema({
     required: true,
     index: true,
   },
-  
-  // Member ke saare submitted links
-  items: [{
-    platform: String,
-    activity_type: String,
-    url: String,
-    normalized_url: String,
-    url_hash: String,
-    status: {
-      type: String,
-      enum: ['PENDING', 'APPROVED', 'REJECTED'],
-      default: 'PENDING',
+  items: [
+    {
+      platform: String,
+      activity_type: String,
+      url: String,
+      normalized_url: String,
+      url_hash: String,
+      status: {
+        type: String,
+        enum: ['PENDING', 'APPROVED', 'REJECTED'],
+        default: 'PENDING',
+      },
+      rejection_reason: String,
     },
-    rejection_reason: String,
-  }],
-  
+  ],
   status: {
     type: String,
     enum: [
-      'NOT_STARTED', 
-      'IN_PROGRESS', 
-      'SUBMITTED', 
-      'UNDER_REVIEW', 
-      'APPROVED', 
-      'PARTIALLY_APPROVED', 
-      'REJECTED', 
-      'COMPLETED'
+      'NOT_STARTED',
+      'IN_PROGRESS',
+      'SUBMITTED',
+      'UNDER_REVIEW',
+      'APPROVED',
+      'PARTIALLY_APPROVED',
+      'REJECTED',
+      'COMPLETED',
     ],
     default: 'NOT_STARTED',
   },
-  
-  points_awarded: { 
-    type: Number, 
-    default: 0 
+  points_awarded: {
+    type: Number,
+    default: 0,
   },
 }, { timestamps: true });
 
 SpecialSubmissionSchema.index(
-  { special_activity_id: 1, member_id: 1 }, 
+  { special_activity_id: 1, member_id: 1 },
   { unique: true }
 );
 
