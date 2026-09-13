@@ -13,6 +13,11 @@ const MemberProfileSchema = new mongoose.Schema({
     required: true, 
     trim: true 
   },
+  telegram_username: { 
+    type: String, 
+    default: '', 
+    trim: true 
+  },
   xiaomi_id: { 
     type: String, 
     required: true, 

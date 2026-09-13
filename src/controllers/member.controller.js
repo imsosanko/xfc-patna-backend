@@ -2,7 +2,6 @@ const MemberProfile = require('../models/MemberProfile');
 
 /**
  * GET /api/member/profile
- * Logged-in member ka profile
  */
 const getProfile = async (req, res) => {
   try {
@@ -31,12 +30,13 @@ const getProfile = async (req, res) => {
 
 /**
  * PUT /api/member/profile
- * Profile create ya update karo (first time + edits)
+ * Create or update profile
  */
 const createOrUpdateProfile = async (req, res) => {
   try {
     const {
       full_name,
+      telegram_username,
       xiaomi_id,
       whatsapp_number,
       instagram_url,
@@ -52,7 +52,7 @@ const createOrUpdateProfile = async (req, res) => {
       });
     }
 
-    // Xiaomi ID basic validation
+    // Xiaomi ID validation
     if (xiaomi_id.length < 5) {
       return res.status(400).json({ 
         success: false,
@@ -60,7 +60,7 @@ const createOrUpdateProfile = async (req, res) => {
       });
     }
 
-    // WhatsApp basic validation (10-15 digits)
+    // WhatsApp validation (10-15 digits)
     const cleanWhatsApp = whatsapp_number.replace(/\D/g, '');
     if (cleanWhatsApp.length < 10 || cleanWhatsApp.length > 15) {
       return res.status(400).json({ 
@@ -72,8 +72,9 @@ const createOrUpdateProfile = async (req, res) => {
     let profile = await MemberProfile.findOne({ user_id: req.user._id });
 
     if (profile) {
-      // Update
+      // Update existing
       profile.full_name = full_name;
+      profile.telegram_username = telegram_username || req.user.telegram_username || '';
       profile.xiaomi_id = xiaomi_id;
       profile.whatsapp_number = cleanWhatsApp;
       profile.instagram_url = instagram_url || '';
@@ -85,6 +86,7 @@ const createOrUpdateProfile = async (req, res) => {
       profile = await MemberProfile.create({
         user_id: req.user._id,
         full_name,
+        telegram_username: telegram_username || req.user.telegram_username || '',
         xiaomi_id,
         whatsapp_number: cleanWhatsApp,
         instagram_url: instagram_url || '',
@@ -98,7 +100,6 @@ const createOrUpdateProfile = async (req, res) => {
       profile 
     });
   } catch (error) {
-    // Duplicate Xiaomi ID check
     if (error.code === 11000) {
       return res.status(409).json({ 
         success: false,
