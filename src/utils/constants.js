@@ -1,0 +1,42 @@
+module.exports = {
+  MONTHLY_TARGET: 100,
+  TIMEZONE: 'Asia/Kolkata',
+  
+  ACTIVITY_STATUS: {
+    PENDING: 'PENDING',
+    APPROVED: 'APPROVED',
+    REJECTED: 'REJECTED',
+    DUPLICATE: 'DUPLICATE',
+    INVALID: 'INVALID',
+  },
+  
+  PLATFORMS: {
+    X: 'X',
+    INSTAGRAM: 'Instagram',
+    FACEBOOK: 'Facebook',
+    OTHER: 'Other',
+  },
+  
+  SPECIAL_STATUS: {
+    DRAFT: 'DRAFT',
+    LOCKED: 'LOCKED',
+    OPEN: 'OPEN',
+    PAUSED: 'PAUSED',
+    CLOSED: 'CLOSED',
+  },
+  
+  USER_STATUS: {
+    ACTIVE: 'ACTIVE',
+    BLOCKED: 'BLOCKED',
+    SUSPENDED: 'SUSPENDED',
+  },
+  
+  ROLES: {
+    MEMBER: 'MEMBER',
+    ADMIN: 'ADMIN',
+    SUPER_ADMIN: 'SUPER_ADMIN',
+    VERIFIER: 'VERIFIER',
+    REPORT_ADMIN: 'REPORT_ADMIN',
+    SPECIAL_ADMIN: 'SPECIAL_ADMIN',
+  },
+};
