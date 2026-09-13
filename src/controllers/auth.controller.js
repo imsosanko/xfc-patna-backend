@@ -5,12 +5,22 @@ const { verifyTelegramInitData } = require('../services/telegram.service');
 
 /**
  * POST /api/auth/telegram
- * Frontend se initData aayega, verify karenge, user create/find karenge, JWT denge
+ * Telegram WebApp authentication
  */
 const telegramAuth = async (req, res) => {
   try {
     const { initData } = req.body;
-    
+
+    // ═══════════════════════════════════════════
+    // 🔍 DEBUG LOGS
+    // ═══════════════════════════════════════════
+    console.log('🔍 === AUTH REQUEST ===');
+    console.log('  initData received:', initData ? `${initData.length} chars` : 'EMPTY');
+    console.log('  initData preview:', initData?.substring(0, 100));
+    console.log('  Bot token loaded:', process.env.TELEGRAM_BOT_TOKEN ? 'YES' : 'NO');
+    console.log('  Bot token (first 10 chars):', process.env.TELEGRAM_BOT_TOKEN?.substring(0, 10));
+    console.log('======================');
+
     if (!initData) {
       return res.status(400).json({ 
         success: false,
@@ -20,8 +30,14 @@ const telegramAuth = async (req, res) => {
 
     // Telegram initData verify karo
     const tgUser = verifyTelegramInitData(initData);
+    
+    console.log('✅ Telegram user verified:', {
+      id: tgUser.id,
+      username: tgUser.username,
+      first_name: tgUser.first_name,
+    });
 
-    // User find karo ya banao (upsert logic)
+    // User find karo ya banao
     let user = await User.findOne({ telegram_id: tgUser.id.toString() });
     
     if (!user) {
@@ -36,12 +52,12 @@ const telegramAuth = async (req, res) => {
       });
       console.log(`👤 New user created: ${user.first_name} (${user.telegram_id})`);
     } else {
-      // Existing user ka Telegram data update karo (naam/photo change ho sakta hai)
       user.telegram_username = tgUser.username || user.telegram_username;
       user.first_name = tgUser.first_name || user.first_name;
       user.last_name = tgUser.last_name || user.last_name;
       user.profile_photo_url = tgUser.photo_url || user.profile_photo_url;
       await user.save();
+      console.log(`👤 Existing user: ${user.first_name}`);
     }
 
     // Blocked check
@@ -52,7 +68,7 @@ const telegramAuth = async (req, res) => {
       });
     }
 
-    // Profile complete hai ya nahi
+    // Profile complete check
     const profile = await MemberProfile.findOne({ user_id: user._id });
 
     // JWT token generate karo
@@ -61,6 +77,9 @@ const telegramAuth = async (req, res) => {
       process.env.JWT_SECRET,
       { expiresIn: '7d' }
     );
+
+    console.log('✅ Auth successful, token issued');
+    console.log('======================');
 
     res.json({
       success: true,
@@ -78,6 +97,7 @@ const telegramAuth = async (req, res) => {
     });
   } catch (error) {
     console.error('❌ Telegram auth error:', error.message);
+    console.log('======================');
     res.status(401).json({ 
       success: false,
       error: error.message 
