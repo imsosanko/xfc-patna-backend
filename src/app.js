@@ -8,6 +8,7 @@ const authRoutes = require('./routes/auth.routes');
 const memberRoutes = require('./routes/member.routes');
 const activityRoutes = require('./routes/activity.routes');
 const leaderboardRoutes = require('./routes/leaderboard.routes');
+const adminRoutes = require('./routes/admin.routes');
 
 // Middlewares
 const errorHandler = require('./middlewares/errorHandler');
@@ -23,6 +24,7 @@ app.use(helmet());
 const allowedOrigins = [
   'http://localhost:5173',
   'http://localhost:3000',
+  'http://localhost:5174',
   process.env.FRONTEND_URL,
 ].filter(Boolean);
 
@@ -31,10 +33,11 @@ app.use(cors({
     // Allow requests with no origin (mobile apps, Postman, Telegram)
     if (!origin) return callback(null, true);
     
-    // Allow localhost, netlify, ngrok
+    // Allow localhost, netlify, vercel, ngrok
     if (
       allowedOrigins.includes(origin) ||
       /\.netlify\.app$/.test(origin) ||
+      /\.vercel\.app$/.test(origin) ||
       /\.ngrok-free\.app$/.test(origin) ||
       /\.ngrok\.io$/.test(origin) ||
       origin.startsWith('http://localhost')
@@ -82,6 +85,7 @@ app.use('/api/auth', authRoutes);
 app.use('/api/member', memberRoutes);
 app.use('/api/activities', activityRoutes);
 app.use('/api/leaderboard', leaderboardRoutes);
+app.use('/api/admin', adminRoutes);
 
 // ============================
 // 404 HANDLER
