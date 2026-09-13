@@ -1,14 +1,22 @@
 require('dotenv').config();
 const app = require('./src/app');
 const connectDB = require('./src/config/db');
+const { startMidnightJob } = require('./src/jobs/midnightProcessor');
 
 const start = async () => {
   try {
+    // ═══════════════════════════════════════════
     // MongoDB connect karo
+    // ═══════════════════════════════════════════
     await connectDB();
 
+    // ═══════════════════════════════════════════
+    // Midnight Cron Job start karo
+    // ═══════════════════════════════════════════
+    startMidnightJob();
+
     const PORT = process.env.PORT || 5000;
-    
+
     app.listen(PORT, '0.0.0.0', () => {
       console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
       console.log('🚀 XFC PATNA BACKEND STARTED');
@@ -25,12 +33,16 @@ const start = async () => {
   }
 };
 
-// Unhandled rejections handle karo
+// ═══════════════════════════════════════════
+// UNHANDLED REJECTIONS
+// ═══════════════════════════════════════════
 process.on('unhandledRejection', (err) => {
   console.error('❌ Unhandled Rejection:', err.message);
 });
 
-// Uncaught exceptions handle karo
+// ═══════════════════════════════════════════
+// UNCAUGHT EXCEPTIONS
+// ═══════════════════════════════════════════
 process.on('uncaughtException', (err) => {
   console.error('❌ Uncaught Exception:', err.message);
   process.exit(1);
