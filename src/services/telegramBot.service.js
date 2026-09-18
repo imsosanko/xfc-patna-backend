@@ -58,6 +58,12 @@ This bot shares official alerts, activity updates, and event schedules for XFC P
       inline_keyboard: [
         [
           {
+            text: '🌟 Join Xiaomi Circle',
+            url: XIAOMI_CIRCLE_URL,
+          },
+        ],
+        [
+          {
             text: '📢 Join XFC Patna Group',
             url: XFC_GROUP_URL,
           },
@@ -70,7 +76,7 @@ This bot shares official alerts, activity updates, and event schedules for XFC P
         ],
         [
           {
-            text: '❓ Help',
+            text: '💁‍♂️ Help',
             callback_data: 'help',
           },
         ],
@@ -90,7 +96,7 @@ This bot shares official alerts, activity updates, and event schedules for XFC P
   // ─── /help ───
   botInstance.command('help', async (ctx) => {
     const message = `
-❓ *XFC Patna Bot — Help*
+💁‍♂️ *XFC Patna Bot — Help*
 
 📌 *Available Commands:*
 
@@ -185,7 +191,7 @@ Xiaomi Community Circle is an official platform where Xiaomi fans connect, get e
 
     if (data === 'help') {
       const message = `
-❓ *XFC Patna Bot — Help*
+💁‍♂️ *XFC Patna Bot — Help*
 
 📌 *Commands:*
 /start — Start
@@ -293,7 +299,7 @@ const handleUpdate = async (update) => {
 };
 
 // ═══════════════════════════════════════════
-// SEND MESSAGE TO USER (DM) ← NEW
+// SEND MESSAGE TO USER (DM)
 // ═══════════════════════════════════════════
 const sendMessageToUser = async (telegramId, text, options = {}) => {
   const botInstance = getBot();
@@ -317,9 +323,6 @@ const sendMessageToUser = async (telegramId, text, options = {}) => {
       message_id: message.message_id,
     };
   } catch (error) {
-    // Common errors:
-    // 403 — user blocked bot / never started
-    // 400 — chat not found
     const errorMsg = error.message || 'Unknown error';
     console.error(`❌ DM failed to ${telegramId}:`, errorMsg);
     return {
@@ -330,7 +333,7 @@ const sendMessageToUser = async (telegramId, text, options = {}) => {
 };
 
 // ═══════════════════════════════════════════
-// SEND BULK MESSAGES ← NEW
+// SEND BULK MESSAGES
 // ═══════════════════════════════════════════
 const sendBulkMessages = async (messages, delayMs = 50) => {
   const results = {
@@ -348,7 +351,6 @@ const sendBulkMessages = async (messages, delayMs = 50) => {
       results.failed++;
       results.errors.push({ telegramId: msg.telegramId, error: result.error });
     }
-    // Rate limit: Telegram allows ~30 msg/sec
     if (delayMs > 0) {
       await new Promise((resolve) => setTimeout(resolve, delayMs));
     }
