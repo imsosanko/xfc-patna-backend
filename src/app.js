@@ -11,6 +11,7 @@ const leaderboardRoutes = require('./routes/leaderboard.routes');
 const adminRoutes = require('./routes/admin.routes');
 const specialRoutes = require('./routes/special.routes');
 const telegramRoutes = require('./routes/telegram.routes');
+const meetupRoutes = require('./routes/meetup.routes'); // ← NEW
 
 // Middlewares
 const errorHandler = require('./middlewares/errorHandler');
@@ -76,6 +77,7 @@ app.use('/api/leaderboard', leaderboardRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/special-activities', specialRoutes);
 app.use('/api/telegram', telegramRoutes);
+app.use('/api/meetups', meetupRoutes); // ← NEW
 
 // 404
 app.use((req, res) => {

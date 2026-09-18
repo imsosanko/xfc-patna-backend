@@ -1,9 +1,10 @@
 const express = require('express');
 const router = express.Router();
 const { protect } = require('../middlewares/telegramAuth');
-const { 
-  getProfile, 
-  createOrUpdateProfile 
+const {
+  getProfile,
+  createOrUpdateProfile,
+  getPointsBreakdown,
 } = require('../controllers/member.controller');
 
 /**
@@ -17,5 +18,11 @@ router.get('/profile', protect, getProfile);
  * Profile create ya update karo
  */
 router.put('/profile', protect, createOrUpdateProfile);
+
+/**
+ * GET /api/member/points-breakdown
+ * Points ka breakdown (regular, special, meetup, manual)
+ */
+router.get('/points-breakdown', protect, getPointsBreakdown);
 
 module.exports = router;

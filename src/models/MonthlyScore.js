@@ -6,41 +6,49 @@ const MonthlyScoreSchema = new mongoose.Schema({
     ref: 'User',
     required: true,
   },
-  month: { 
-    type: String, 
-    required: true 
-  },   // YYYY-MM
-  total_points: { 
-    type: Number, 
-    default: 0 
+  month: {
+    type: String,
+    required: true,
+  }, // YYYY-MM
+  total_points: {
+    type: Number,
+    default: 0,
   },
-  special_points: { 
-    type: Number, 
-    default: 0 
+  special_points: {
+    type: Number,
+    default: 0,
   },
-  regular_points: { 
-    type: Number, 
-    default: 0 
+  regular_points: {
+    type: Number,
+    default: 0,
   },
-  verified_activities: { 
-    type: Number, 
-    default: 0 
+  meetup_points: {        // ← NEW
+    type: Number,
+    default: 0,
   },
-  active_days: { 
-    type: Number, 
-    default: 0 
+  manual_adjustments: {   // ← NEW (Feature 1 ke liye)
+    type: Number,
+    default: 0,
   },
-  percentage: { 
-    type: Number, 
-    default: 0 
+  verified_activities: {
+    type: Number,
+    default: 0,
   },
-  current_streak: { 
-    type: Number, 
-    default: 0 
+  active_days: {
+    type: Number,
+    default: 0,
   },
-  longest_streak: { 
-    type: Number, 
-    default: 0 
+  percentage: {
+    type: Number,
+    default: 0,
+  },
+  current_streak: {
+    type: Number,
+    default: 0,
+  },
+  longest_streak: {
+    type: Number,
+    default: 0,
   },
   first_activity_at: Date,
   last_activity_at: Date,

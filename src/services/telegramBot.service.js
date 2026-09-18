@@ -292,9 +292,76 @@ const handleUpdate = async (update) => {
   }
 };
 
+// ═══════════════════════════════════════════
+// SEND MESSAGE TO USER (DM) ← NEW
+// ═══════════════════════════════════════════
+const sendMessageToUser = async (telegramId, text, options = {}) => {
+  const botInstance = getBot();
+  if (!botInstance) {
+    return { success: false, error: 'Bot not initialized' };
+  }
+
+  if (!telegramId) {
+    return { success: false, error: 'telegramId required' };
+  }
+
+  try {
+    const message = await botInstance.api.sendMessage(telegramId, text, {
+      parse_mode: 'Markdown',
+      link_preview_options: { is_disabled: true },
+      ...options,
+    });
+
+    return {
+      success: true,
+      message_id: message.message_id,
+    };
+  } catch (error) {
+    // Common errors:
+    // 403 — user blocked bot / never started
+    // 400 — chat not found
+    const errorMsg = error.message || 'Unknown error';
+    console.error(`❌ DM failed to ${telegramId}:`, errorMsg);
+    return {
+      success: false,
+      error: errorMsg,
+    };
+  }
+};
+
+// ═══════════════════════════════════════════
+// SEND BULK MESSAGES ← NEW
+// ═══════════════════════════════════════════
+const sendBulkMessages = async (messages, delayMs = 50) => {
+  const results = {
+    total: messages.length,
+    sent: 0,
+    failed: 0,
+    errors: [],
+  };
+
+  for (const msg of messages) {
+    const result = await sendMessageToUser(msg.telegramId, msg.text, msg.options);
+    if (result.success) {
+      results.sent++;
+    } else {
+      results.failed++;
+      results.errors.push({ telegramId: msg.telegramId, error: result.error });
+    }
+    // Rate limit: Telegram allows ~30 msg/sec
+    if (delayMs > 0) {
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
+    }
+  }
+
+  return results;
+};
+
 module.exports = {
   initBot,
   getBot,
   handleUpdate,
   setWebhook,
+  sendMessageToUser,
+  sendBulkMessages,
 };

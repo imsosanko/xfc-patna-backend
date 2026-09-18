@@ -6,6 +6,8 @@ const {
   getDashboardStats,
   listMembers,
   updateMemberStatus,
+  adjustMemberPoints,
+  getMemberPointsBreakdown,
   listActivities,
   approveActivity,
   rejectActivity,
@@ -17,6 +19,19 @@ const {
   exportMonthlyCSV,
   triggerMidnightJob,
   getProcessingStatus,
+  // Meetups
+  createMeetup,
+  updateMeetup,
+  deleteMeetup,
+  listMeetupsAdmin,
+  getMeetupRSVPs,
+  checkInMember,
+  // Notifications
+  broadcastToMembers,
+  // Data Exports
+  exportMembersCSV,
+  exportMeetupAttendanceCSV,
+  exportActivityLogCSV,
 } = require('../controllers/admin.controller');
 
 // ═══════════════════════════════════════════
@@ -34,6 +49,8 @@ router.get('/dashboard', adminProtect, getDashboardStats);
 // ═══════════════════════════════════════════
 router.get('/members', adminProtect, listMembers);
 router.patch('/members/:id/status', adminProtect, updateMemberStatus);
+router.post('/members/:id/adjust-points', adminProtect, adjustMemberPoints);
+router.get('/members/:id/points-breakdown', adminProtect, getMemberPointsBreakdown);
 
 // ═══════════════════════════════════════════
 // ACTIVITIES
@@ -61,5 +78,27 @@ router.get('/analytics', adminProtect, getAnalytics);
 // ═══════════════════════════════════════════
 router.post('/trigger-midnight-job', adminProtect, triggerMidnightJob);
 router.get('/processing-status', adminProtect, getProcessingStatus);
+
+// ═══════════════════════════════════════════
+// MEETUPS
+// ═══════════════════════════════════════════
+router.post('/meetups', adminProtect, createMeetup);
+router.get('/meetups', adminProtect, listMeetupsAdmin);
+router.patch('/meetups/:id', adminProtect, updateMeetup);
+router.delete('/meetups/:id', adminProtect, deleteMeetup);
+router.get('/meetups/:id/rsvps', adminProtect, getMeetupRSVPs);
+router.post('/meetups/:id/check-in', adminProtect, checkInMember);
+
+// ═══════════════════════════════════════════
+// NOTIFICATIONS
+// ═══════════════════════════════════════════
+router.post('/broadcast', adminProtect, broadcastToMembers);
+
+// ═══════════════════════════════════════════
+// DATA EXPORTS
+// ═══════════════════════════════════════════
+router.get('/export/members', adminProtect, exportMembersCSV);
+router.get('/export/meetup-attendance', adminProtect, exportMeetupAttendanceCSV);
+router.get('/export/activity-log', adminProtect, exportActivityLogCSV);
 
 module.exports = router;

@@ -221,15 +221,16 @@ const submitBulk = async (req, res) => {
 
 /**
  * GET /api/activities
- * Member ki apni activities (date/month filter ke saath)
+ * Member ki apni activities (date/month/status filter ke saath)
  */
 const getMyActivities = async (req, res) => {
   try {
-    const { date, month, limit = 50, page = 1 } = req.query;
+    const { date, month, status, limit = 50, page = 1 } = req.query;
     
     const filter = { member_id: req.user._id };
     if (date) filter.date = date;
     if (month) filter.month = month;
+    if (status) filter.status = status; // ← NEW
 
     const skip = (parseInt(page) - 1) * parseInt(limit);
 
