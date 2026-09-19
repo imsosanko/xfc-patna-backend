@@ -10,6 +10,7 @@ const SystemSetting = require('../models/SystemSetting');
 const AuditLog = require('../models/AuditLog');
 const Meetup = require('../models/Meetup');
 const MeetupRSVP = require('../models/MeetupRSVP');
+const Notification = require('../models/Notification');
 const notificationService = require('../services/notification.service');
 const {
   formatDateIST,
@@ -72,7 +73,7 @@ const adminLogin = async (req, res) => {
         email: admin.email,
         name: admin.name,
         role: admin.role,
-        permissions: admin.permissions || [],  // ← NEW
+        permissions: admin.permissions || [],
       },
     });
   } catch (error) {
@@ -782,7 +783,7 @@ const getAnalytics = async (req, res) => {
 };
 
 // ═══════════════════════════════════════════
-// EXPORT MONTHLY REPORT CSV (existing)
+// EXPORT MONTHLY REPORT CSV
 // ═══════════════════════════════════════════
 const exportMonthlyCSV = async (req, res) => {
   try {
@@ -1511,6 +1512,235 @@ const broadcastToMembers = async (req, res) => {
 };
 
 // ═══════════════════════════════════════════
+// GET BROADCAST HISTORY ← NEW
+// ═══════════════════════════════════════════
+const getBroadcastHistory = async (req, res) => {
+  try {
+    const { page = 1, limit = 20 } = req.query;
+
+    const broadcasts = await Notification.find({
+      type: 'BROADCAST',
+      is_deleted: { $ne: true },
+    })
+      .sort({ createdAt: -1 })
+      .lean();
+
+    const groupedMap = new Map();
+
+    broadcasts.forEach((n) => {
+      const minuteKey = new Date(n.createdAt).toISOString().substring(0, 16);
+      const key = n.broadcast_id || `${n.title}|${n.message}|${minuteKey}`;
+
+      if (!groupedMap.has(key)) {
+        groupedMap.set(key, {
+          broadcast_id: n.broadcast_id || key,
+          title: n.title,
+          message: n.message,
+          sent_at: n.createdAt,
+          sent_by_admin: n.sent_by_admin,
+          total_recipients: 0,
+          telegram_sent: 0,
+          telegram_failed: 0,
+          read_count: 0,
+        });
+      }
+
+      const group = groupedMap.get(key);
+      group.total_recipients += 1;
+      if (n.telegram_sent) group.telegram_sent += 1;
+      else group.telegram_failed += 1;
+      if (n.is_read) group.read_count += 1;
+    });
+
+    let history = Array.from(groupedMap.values());
+    history.sort((a, b) => new Date(b.sent_at) - new Date(a.sent_at));
+
+    const total = history.length;
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+    history = history.slice(skip, skip + parseInt(limit));
+
+    const enrichedHistory = await Promise.all(
+      history.map(async (h) => {
+        let adminInfo = null;
+        if (h.sent_by_admin) {
+          adminInfo = await Admin.findById(h.sent_by_admin)
+            .select('name email')
+            .lean();
+        }
+
+        return {
+          broadcast_id: h.broadcast_id,
+          title: h.title,
+          message: h.message,
+          sent_at: h.sent_at,
+          sent_by: adminInfo
+            ? { name: adminInfo.name, email: adminInfo.email }
+            : null,
+          total_recipients: h.total_recipients,
+          telegram_sent: h.telegram_sent,
+          telegram_failed: h.telegram_failed,
+          read_count: h.read_count,
+          delivery_rate:
+            h.total_recipients > 0
+              ? Math.round((h.telegram_sent / h.total_recipients) * 100)
+              : 0,
+        };
+      })
+    );
+
+    res.json({
+      success: true,
+      total,
+      page: parseInt(page),
+      history: enrichedHistory,
+    });
+  } catch (error) {
+    console.error('getBroadcastHistory error:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+};
+
+// ═══════════════════════════════════════════
+// DELETE BROADCAST ← NEW
+// ═══════════════════════════════════════════
+const deleteBroadcast = async (req, res) => {
+  try {
+    const { broadcast_id } = req.params;
+    const { title, message, sent_at } = req.query;
+
+    if (!broadcast_id && !title) {
+      return res.status(400).json({
+        success: false,
+        error: 'broadcast_id or title required',
+      });
+    }
+
+    let query = { type: 'BROADCAST' };
+
+    if (broadcast_id && broadcast_id.length === 36) {
+      query.broadcast_id = broadcast_id;
+    } else if (title && message && sent_at) {
+      const d = new Date(sent_at);
+      const start = new Date(d);
+      start.setSeconds(0, 0);
+      const end = new Date(start);
+      end.setMinutes(end.getMinutes() + 1);
+
+      query.title = title;
+      query.message = message;
+      query.createdAt = { $gte: start, $lt: end };
+    } else {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid broadcast identifier',
+      });
+    }
+
+    const result = await Notification.updateMany(query, {
+      $set: { is_deleted: true },
+    });
+
+    await AuditLog.create({
+      admin_id: req.admin._id,
+      action: 'DELETE_BROADCAST',
+      target_type: 'BROADCAST',
+      target_id: broadcast_id || null,
+      new_value: { deleted_count: result.modifiedCount },
+    });
+
+    res.json({
+      success: true,
+      message: `Broadcast deleted from ${result.modifiedCount} members' inboxes`,
+      deleted_count: result.modifiedCount,
+    });
+  } catch (error) {
+    console.error('deleteBroadcast error:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+};
+
+// ═══════════════════════════════════════════
+// UPDATE BROADCAST ← NEW
+// ═══════════════════════════════════════════
+const updateBroadcast = async (req, res) => {
+  try {
+    const { broadcast_id } = req.params;
+    const { title, message, sent_at, new_title, new_message } = req.body;
+
+    if (!new_title || !new_message) {
+      return res.status(400).json({
+        success: false,
+        error: 'new_title and new_message are required',
+      });
+    }
+
+    if (new_title.trim().length < 3) {
+      return res.status(400).json({
+        success: false,
+        error: 'Title must be at least 3 characters',
+      });
+    }
+
+    if (new_message.trim().length < 5) {
+      return res.status(400).json({
+        success: false,
+        error: 'Message must be at least 5 characters',
+      });
+    }
+
+    let query = { type: 'BROADCAST' };
+
+    if (broadcast_id && broadcast_id.length === 36) {
+      query.broadcast_id = broadcast_id;
+    } else if (title && message && sent_at) {
+      const d = new Date(sent_at);
+      const start = new Date(d);
+      start.setSeconds(0, 0);
+      const end = new Date(start);
+      end.setMinutes(end.getMinutes() + 1);
+
+      query.title = title;
+      query.message = message;
+      query.createdAt = { $gte: start, $lt: end };
+    } else {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid broadcast identifier',
+      });
+    }
+
+    const result = await Notification.updateMany(query, {
+      $set: {
+        title: new_title.trim(),
+        message: new_message.trim(),
+      },
+    });
+
+    await AuditLog.create({
+      admin_id: req.admin._id,
+      action: 'UPDATE_BROADCAST',
+      target_type: 'BROADCAST',
+      target_id: broadcast_id || null,
+      previous_value: { title, message },
+      new_value: {
+        title: new_title.trim(),
+        message: new_message.trim(),
+        updated_count: result.modifiedCount,
+      },
+    });
+
+    res.json({
+      success: true,
+      message: `Broadcast updated for ${result.modifiedCount} members`,
+      modified_count: result.modifiedCount,
+    });
+  } catch (error) {
+    console.error('updateBroadcast error:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+};
+
+// ═══════════════════════════════════════════
 // EXPORTS
 // ═══════════════════════════════════════════
 module.exports = {
@@ -1540,6 +1770,9 @@ module.exports = {
   checkInMember,
   // Notifications
   broadcastToMembers,
+  getBroadcastHistory,
+  deleteBroadcast,
+  updateBroadcast,
   // Data Exports
   exportMembersCSV,
   exportMeetupAttendanceCSV,

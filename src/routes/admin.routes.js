@@ -31,6 +31,9 @@ const {
   checkInMember,
   // Notifications
   broadcastToMembers,
+  getBroadcastHistory,
+  deleteBroadcast,
+  updateBroadcast,
   // Data Exports
   exportMembersCSV,
   exportMeetupAttendanceCSV,
@@ -103,9 +106,12 @@ router.get('/meetups/:id/rsvps', adminProtect, getMeetupRSVPs);
 router.post('/meetups/:id/check-in', adminProtect, checkInMember);
 
 // ═══════════════════════════════════════════
-// NOTIFICATIONS
+// NOTIFICATIONS / BROADCAST
 // ═══════════════════════════════════════════
 router.post('/broadcast', adminProtect, broadcastToMembers);
+router.get('/broadcast/history', adminProtect, getBroadcastHistory);
+router.delete('/broadcast/:broadcast_id', adminProtect, deleteBroadcast);
+router.patch('/broadcast/:broadcast_id', adminProtect, updateBroadcast);
 
 // ═══════════════════════════════════════════
 // DATA EXPORTS

@@ -22,6 +22,12 @@ const NotificationSchema = new mongoose.Schema({
     required: true,
     index: true,
   },
+  broadcast_id: {
+    type: String,
+    default: null,
+    index: true,
+    sparse: true,
+  },
   title: {
     type: String,
     required: true,
@@ -36,7 +42,6 @@ const NotificationSchema = new mongoose.Schema({
     type: mongoose.Schema.Types.Mixed,
     default: {},
   },
-  // Telegram DM status
   telegram_sent: {
     type: Boolean,
     default: false,
@@ -49,7 +54,6 @@ const NotificationSchema = new mongoose.Schema({
     type: String,
     default: null,
   },
-  // Read status
   is_read: {
     type: Boolean,
     default: false,
@@ -59,16 +63,20 @@ const NotificationSchema = new mongoose.Schema({
     type: Date,
     default: null,
   },
-  // Sender info
   sent_by_admin: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Admin',
     default: null,
   },
+  is_deleted: {
+    type: Boolean,
+    default: false,
+    index: true,
+  },
 }, { timestamps: true });
 
-// Indexes for fast queries
 NotificationSchema.index({ member_id: 1, createdAt: -1 });
 NotificationSchema.index({ member_id: 1, is_read: 1 });
+NotificationSchema.index({ broadcast_id: 1, member_id: 1 });
 
 module.exports = mongoose.model('Notification', NotificationSchema);

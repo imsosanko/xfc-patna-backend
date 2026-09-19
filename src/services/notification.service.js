@@ -1,11 +1,9 @@
 const Notification = require('../models/Notification');
 const { sendMessageToUser, sendBulkMessages } = require('./telegramBot.service');
+const crypto = require('crypto');
 
 // ═══════════════════════════════════════════
 // SEND NOTIFICATION TO A SINGLE MEMBER
-// - Creates DB record
-// - Attempts Telegram DM
-// - Updates DB with send status
 // ═══════════════════════════════════════════
 const sendNotification = async ({
   memberId,
@@ -18,7 +16,6 @@ const sendNotification = async ({
   telegramOptions = {},
 }) => {
   try {
-    // Step 1: Create notification record in DB
     const notification = await Notification.create({
       member_id: memberId,
       type,
@@ -29,7 +26,6 @@ const sendNotification = async ({
       telegram_sent: false,
     });
 
-    // Step 2: Send via Telegram if telegramId provided
     if (telegramId) {
       const result = await sendMessageToUser(telegramId, message, telegramOptions);
 
@@ -52,9 +48,6 @@ const sendNotification = async ({
 
 // ═══════════════════════════════════════════
 // BROADCAST TO MANY MEMBERS
-// - Creates DB record for each
-// - Sends DMs with rate limiting
-// - Returns summary
 // ═══════════════════════════════════════════
 const broadcastNotification = async ({
   members,
@@ -64,12 +57,15 @@ const broadcastNotification = async ({
   data = {},
   adminId = null,
 }) => {
+  const broadcastId = crypto.randomUUID();
+
   const results = {
     total: members.length,
     notifications_created: 0,
     telegram_sent: 0,
     telegram_failed: 0,
     errors: [],
+    broadcast_id: broadcastId,
   };
 
   if (members.length === 0) {
@@ -80,6 +76,7 @@ const broadcastNotification = async ({
   const notifications = members.map((m) => ({
     member_id: m._id,
     type,
+    broadcast_id: broadcastId,
     title,
     message,
     data,
@@ -108,7 +105,6 @@ const broadcastNotification = async ({
       results.errors = sendResults.errors;
 
       // Step 4: Update DB records for successfully sent
-      // (Simpler approach: mark all as attempted; we know aggregate counts)
       const sentTelegramIds = members
         .filter((m) => m.telegram_id)
         .slice(0, sendResults.sent)
@@ -116,7 +112,10 @@ const broadcastNotification = async ({
 
       if (sentTelegramIds.length > 0) {
         await Notification.updateMany(
-          { member_id: { $in: sentTelegramIds }, type, title },
+          {
+            member_id: { $in: sentTelegramIds },
+            broadcast_id: broadcastId,
+          },
           { $set: { telegram_sent: true } }
         );
       }
