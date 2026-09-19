@@ -1,5 +1,4 @@
 const { Bot } = require('node-telegram-bot-api');
-const axios = require('axios');
 
 // ═══════════════════════════════════════════
 // CONFIGURATION
@@ -9,13 +8,10 @@ const MINI_APP_URL = process.env.MINI_APP_URL || 'https://xfc-patna.vercel.app';
 const XFC_GROUP_URL = process.env.XFC_GROUP_URL || 'https://t.me/XFCPatna';
 const XIAOMI_CIRCLE_URL = process.env.XIAOMI_CIRCLE_URL || 'https://t.me/XiaomiCircle';
 
-// Direct Telegram API base URL — bypasses library bug for sending
-const TELEGRAM_API = `https://api.telegram.org/bot${BOT_TOKEN}`;
-
 let bot = null;
 
 // ═══════════════════════════════════════════
-// INITIALIZE BOT (only for receiving webhooks)
+// INITIALIZE BOT
 // ═══════════════════════════════════════════
 const initBot = () => {
   if (!BOT_TOKEN) {
@@ -60,10 +56,30 @@ This bot shares official alerts, activity updates, and event schedules for XFC P
 
     const keyboard = {
       inline_keyboard: [
-        [{ text: '🌟 Join Xiaomi Circle', url: XIAOMI_CIRCLE_URL }],
-        [{ text: '📢 Join XFC Patna Group', url: XFC_GROUP_URL }],
-        [{ text: '🚀 Launch XFC Patna App', web_app: { url: MINI_APP_URL } }],
-        [{ text: '💁‍♂️ Help', callback_data: 'help' }],
+        [
+          {
+            text: '🌟 Join Xiaomi Circle',
+            url: XIAOMI_CIRCLE_URL,
+          },
+        ],
+        [
+          {
+            text: '📢 Join XFC Patna Group',
+            url: XFC_GROUP_URL,
+          },
+        ],
+        [
+          {
+            text: '🚀 Launch XFC Patna App',
+            web_app: { url: MINI_APP_URL },
+          },
+        ],
+        [
+          {
+            text: '💁‍♂️ Help',
+            callback_data: 'help',
+          },
+        ],
       ],
     };
 
@@ -105,7 +121,12 @@ If you have any issue, contact the admin.
 
     const keyboard = {
       inline_keyboard: [
-        [{ text: '🚀 Launch App', web_app: { url: MINI_APP_URL } }],
+        [
+          {
+            text: '🚀 Launch App',
+            web_app: { url: MINI_APP_URL },
+          },
+        ],
       ],
     };
 
@@ -138,8 +159,18 @@ Xiaomi Community Circle is an official platform where Xiaomi fans connect, get e
 
     const keyboard = {
       inline_keyboard: [
-        [{ text: '🌟 Join Xiaomi Circle', url: XIAOMI_CIRCLE_URL }],
-        [{ text: '📢 Join XFC Group', url: XFC_GROUP_URL }],
+        [
+          {
+            text: '🌟 Join Xiaomi Circle',
+            url: XIAOMI_CIRCLE_URL,
+          },
+        ],
+        [
+          {
+            text: '📢 Join XFC Group',
+            url: XFC_GROUP_URL,
+          },
+        ],
       ],
     };
 
@@ -176,7 +207,12 @@ Xiaomi Community Circle is an official platform where Xiaomi fans connect, get e
 
       const keyboard = {
         inline_keyboard: [
-          [{ text: '🚀 Launch App', web_app: { url: MINI_APP_URL } }],
+          [
+            {
+              text: '🚀 Launch App',
+              web_app: { url: MINI_APP_URL },
+            },
+          ],
         ],
       };
 
@@ -230,36 +266,26 @@ const getBot = () => {
 };
 
 // ═══════════════════════════════════════════
-// SET WEBHOOK — DIRECT TELEGRAM API
+// SET WEBHOOK
 // ═══════════════════════════════════════════
 const setWebhook = async (webhookUrl) => {
-  if (!BOT_TOKEN) {
-    console.error('❌ Bot token not set');
-    return false;
-  }
+  const botInstance = getBot();
+  if (!botInstance) return false;
 
   try {
-    const response = await axios.post(`${TELEGRAM_API}/setWebhook`, {
+    await botInstance.api.setWebhook({
       url: `${webhookUrl}/api/telegram/webhook`,
     });
-
-    if (response.data?.ok) {
-      console.log(`✅ Webhook set: ${webhookUrl}/api/telegram/webhook`);
-      return true;
-    }
-
-    console.error('❌ Webhook set failed:', response.data?.description);
-    return false;
+    console.log(`✅ Webhook set: ${webhookUrl}/api/telegram/webhook`);
+    return true;
   } catch (error) {
-    const errorMsg =
-      error.response?.data?.description || error.message || 'Unknown error';
-    console.error('❌ Error setting webhook:', errorMsg);
+    console.error('❌ Error setting webhook:', error.message);
     return false;
   }
 };
 
 // ═══════════════════════════════════════════
-// HANDLE UPDATE (receive from webhook)
+// HANDLE UPDATE
 // ═══════════════════════════════════════════
 const handleUpdate = async (update) => {
   const botInstance = getBot();
@@ -273,12 +299,12 @@ const handleUpdate = async (update) => {
 };
 
 // ═══════════════════════════════════════════
-// SEND MESSAGE TO USER (DM) — DIRECT TELEGRAM API
-// Bypasses node-telegram-bot-api bug (s.addEventListener)
+// SEND MESSAGE TO USER (DM)
 // ═══════════════════════════════════════════
 const sendMessageToUser = async (telegramId, text, options = {}) => {
-  if (!BOT_TOKEN) {
-    return { success: false, error: 'Bot token not configured' };
+  const botInstance = getBot();
+  if (!botInstance) {
+    return { success: false, error: 'Bot not initialized' };
   }
 
   if (!telegramId) {
@@ -286,35 +312,18 @@ const sendMessageToUser = async (telegramId, text, options = {}) => {
   }
 
   try {
-    const payload = {
-      chat_id: telegramId,
-      text,
+    const message = await botInstance.api.sendMessage(telegramId, text, {
       parse_mode: 'Markdown',
       link_preview_options: { is_disabled: true },
       ...options,
-    };
-
-    const response = await axios.post(`${TELEGRAM_API}/sendMessage`, payload, {
-      timeout: 15000,
     });
 
-    if (response.data?.ok) {
-      return {
-        success: true,
-        message_id: response.data.result.message_id,
-      };
-    }
-
     return {
-      success: false,
-      error: response.data?.description || 'Unknown Telegram error',
+      success: true,
+      message_id: message.message_id,
     };
   } catch (error) {
-    // Common errors:
-    // 403 — user blocked bot / never started
-    // 400 — chat not found
-    const errorMsg =
-      error.response?.data?.description || error.message || 'Unknown error';
+    const errorMsg = error.message || 'Unknown error';
     console.error(`❌ DM failed to ${telegramId}:`, errorMsg);
     return {
       success: false,
