@@ -1512,7 +1512,7 @@ const broadcastToMembers = async (req, res) => {
 };
 
 // ═══════════════════════════════════════════
-// GET BROADCAST HISTORY ← NEW
+// GET BROADCAST HISTORY
 // ═══════════════════════════════════════════
 const getBroadcastHistory = async (req, res) => {
   try {
@@ -1601,12 +1601,11 @@ const getBroadcastHistory = async (req, res) => {
 };
 
 // ═══════════════════════════════════════════
-// DELETE BROADCAST ← NEW
+// DELETE BROADCAST (uses req.body now)
 // ═══════════════════════════════════════════
 const deleteBroadcast = async (req, res) => {
   try {
-    const { broadcast_id } = req.params;
-    const { title, message, sent_at } = req.query;
+    const { broadcast_id, title, message, sent_at } = req.body;
 
     if (!broadcast_id && !title) {
       return res.status(400).json({
@@ -1660,12 +1659,11 @@ const deleteBroadcast = async (req, res) => {
 };
 
 // ═══════════════════════════════════════════
-// UPDATE BROADCAST ← NEW
+// UPDATE BROADCAST (uses req.body now)
 // ═══════════════════════════════════════════
 const updateBroadcast = async (req, res) => {
   try {
-    const { broadcast_id } = req.params;
-    const { title, message, sent_at, new_title, new_message } = req.body;
+    const { broadcast_id, title, message, sent_at, new_title, new_message } = req.body;
 
     if (!new_title || !new_message) {
       return res.status(400).json({

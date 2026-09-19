@@ -90,7 +90,7 @@ router.get('/reports/export', adminProtect, exportMonthlyCSV);
 router.get('/analytics', adminProtect, getAnalytics);
 
 // ═══════════════════════════════════════════
-// MIDNIGHT JOB (Manual Trigger + Status)
+// MIDNIGHT JOB
 // ═══════════════════════════════════════════
 router.post('/trigger-midnight-job', adminProtect, triggerMidnightJob);
 router.get('/processing-status', adminProtect, getProcessingStatus);
@@ -108,10 +108,11 @@ router.post('/meetups/:id/check-in', adminProtect, checkInMember);
 // ═══════════════════════════════════════════
 // NOTIFICATIONS / BROADCAST
 // ═══════════════════════════════════════════
-router.post('/broadcast', adminProtect, broadcastToMembers);
+// IMPORTANT: /broadcast/delete and /broadcast/update must come BEFORE /broadcast
+router.post('/broadcast/delete', adminProtect, deleteBroadcast);
+router.post('/broadcast/update', adminProtect, updateBroadcast);
 router.get('/broadcast/history', adminProtect, getBroadcastHistory);
-router.delete('/broadcast/:broadcast_id', adminProtect, deleteBroadcast);
-router.patch('/broadcast/:broadcast_id', adminProtect, updateBroadcast);
+router.post('/broadcast', adminProtect, broadcastToMembers);
 
 // ═══════════════════════════════════════════
 // DATA EXPORTS
