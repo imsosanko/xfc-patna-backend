@@ -1,6 +1,9 @@
 const express = require('express');
 const router = express.Router();
-const { adminProtect } = require('../middlewares/adminAuth');
+const {
+  adminProtect,
+  superAdminOnly,
+} = require('../middlewares/adminAuth');
 const {
   adminLogin,
   getDashboardStats,
@@ -33,6 +36,16 @@ const {
   exportMeetupAttendanceCSV,
   exportActivityLogCSV,
 } = require('../controllers/admin.controller');
+const {
+  getMe,
+  getAvailablePermissions,
+  changeOwnPassword,
+  listAdmins,
+  createAdmin,
+  updateAdmin,
+  resetAdminPassword,
+  deleteAdmin,
+} = require('../controllers/adminManagement.controller');
 
 // ═══════════════════════════════════════════
 // PUBLIC ROUTES
@@ -100,5 +113,23 @@ router.post('/broadcast', adminProtect, broadcastToMembers);
 router.get('/export/members', adminProtect, exportMembersCSV);
 router.get('/export/meetup-attendance', adminProtect, exportMeetupAttendanceCSV);
 router.get('/export/activity-log', adminProtect, exportActivityLogCSV);
+
+// ═══════════════════════════════════════════
+// ADMIN MANAGEMENT
+// ═══════════════════════════════════════════
+
+// Self (any logged-in admin)
+router.get('/me', adminProtect, getMe);
+router.post('/me/change-password', adminProtect, changeOwnPassword);
+
+// Super admin only — permissions list
+router.get('/admins/permissions', adminProtect, superAdminOnly, getAvailablePermissions);
+
+// Super admin only — manage admins
+router.get('/admins', adminProtect, superAdminOnly, listAdmins);
+router.post('/admins', adminProtect, superAdminOnly, createAdmin);
+router.patch('/admins/:id', adminProtect, superAdminOnly, updateAdmin);
+router.post('/admins/:id/reset-password', adminProtect, superAdminOnly, resetAdminPassword);
+router.delete('/admins/:id', adminProtect, superAdminOnly, deleteAdmin);
 
 module.exports = router;

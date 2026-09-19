@@ -72,6 +72,7 @@ const adminLogin = async (req, res) => {
         email: admin.email,
         name: admin.name,
         role: admin.role,
+        permissions: admin.permissions || [],  // ← NEW
       },
     });
   } catch (error) {
@@ -827,7 +828,7 @@ const exportMonthlyCSV = async (req, res) => {
 };
 
 // ═══════════════════════════════════════════
-// EXPORT: ALL MEMBERS CSV ← NEW
+// EXPORT: ALL MEMBERS CSV
 // ═══════════════════════════════════════════
 const exportMembersCSV = async (req, res) => {
   try {
@@ -879,7 +880,7 @@ const exportMembersCSV = async (req, res) => {
 };
 
 // ═══════════════════════════════════════════
-// EXPORT: MEETUP ATTENDANCE CSV ← NEW
+// EXPORT: MEETUP ATTENDANCE CSV
 // ═══════════════════════════════════════════
 const exportMeetupAttendanceCSV = async (req, res) => {
   try {
@@ -941,7 +942,7 @@ const exportMeetupAttendanceCSV = async (req, res) => {
 };
 
 // ═══════════════════════════════════════════
-// EXPORT: ACTIVITY LOG CSV ← NEW
+// EXPORT: ACTIVITY LOG CSV
 // ═══════════════════════════════════════════
 const exportActivityLogCSV = async (req, res) => {
   try {
@@ -1539,7 +1540,7 @@ module.exports = {
   checkInMember,
   // Notifications
   broadcastToMembers,
-  // Data Exports ← NEW
+  // Data Exports
   exportMembersCSV,
   exportMeetupAttendanceCSV,
   exportActivityLogCSV,
