@@ -10,8 +10,8 @@ const getProfile = async (req, res) => {
   try {
     const profile = await MemberProfile.findOne({ user_id: req.user._id });
 
-    // Full user with badges
-    const fullUser = await User.findById(req.user._id).select('badges');
+    // Full user with badges + admin_badges
+    const fullUser = await User.findById(req.user._id).select('badges admin_badges');
 
     res.json({
       success: true,
@@ -25,6 +25,7 @@ const getProfile = async (req, res) => {
         role: req.user.role,
         status: req.user.status,
         badges: fullUser?.badges || [],
+        admin_badges: fullUser?.admin_badges || [],
       },
     });
   } catch (error) {
