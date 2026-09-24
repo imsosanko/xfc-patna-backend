@@ -1,16 +1,30 @@
 const { MONTHLY_TARGET } = require('../utils/constants');
 
+// ═══════════════════════════════════════════
+// STREAK MILESTONES
+// ═══════════════════════════════════════════
+const STREAK_MILESTONES = [
+  { days: 7,   badge: 'WEEK_WARRIOR',       emoji: '🔥', title: 'Week Warrior',        description: '7-day streak' },
+  { days: 14,  badge: 'FORTNIGHT_FIGHTER',  emoji: '⚡', title: 'Fortnight Fighter',   description: '14-day streak' },
+  { days: 30,  badge: 'MONTHLY_MASTER',     emoji: '💎', title: 'Monthly Master',      description: '30-day streak' },
+  { days: 60,  badge: 'BIMONTHLY_BOSS',     emoji: '👑', title: 'Bimonthly Boss',      description: '60-day streak' },
+  { days: 90,  badge: 'QUARTERLY_KING',     emoji: '🏆', title: 'Quarterly King',      description: '90-day streak' },
+  { days: 100, badge: 'CENTURY_CHAMPION',   emoji: '🌟', title: 'Century Champion',    description: '100-day streak' },
+  { days: 180, badge: 'HALF_YEAR_HERO',     emoji: '🎖️', title: 'Half-Year Hero',      description: '180-day (6 month) streak' },
+  { days: 365, badge: 'YEARLY_LEGEND',      emoji: '💫', title: 'Yearly Legend',       description: '365-day (1 year) streak' },
+];
+
+const MILESTONE_DAYS = STREAK_MILESTONES.map((m) => m.days);
+
 /**
  * Given month mein kitne din hain (28/29/30/31)
  */
 const getDaysInMonth = (year, month) => {
-  // month: 1-12
   return new Date(year, month, 0).getDate();
 };
 
 /**
  * Ek din ke kitne points milte hain
- * 100 / total_days_in_month
  */
 const calculateDailyPoints = (totalDaysInMonth) => {
   return MONTHLY_TARGET / totalDaysInMonth;
@@ -18,7 +32,6 @@ const calculateDailyPoints = (totalDaysInMonth) => {
 
 /**
  * Monthly points calculate karo based on active days
- * High precision rakho, display pe round karo
  */
 const calculateMonthlyPoints = (activeDays, totalDaysInMonth) => {
   const dailyPoints = calculateDailyPoints(totalDaysInMonth);
@@ -32,7 +45,7 @@ const calculateMonthlyPoints = (activeDays, totalDaysInMonth) => {
 };
 
 /**
- * Date ko IST (Asia/Kolkata) mein YYYY-MM-DD format mein return karta hai
+ * Date ko IST mein YYYY-MM-DD format mein
  */
 const formatDateIST = (date = new Date()) => {
   const formatter = new Intl.DateTimeFormat('en-CA', {
@@ -41,11 +54,11 @@ const formatDateIST = (date = new Date()) => {
     month: '2-digit',
     day: '2-digit',
   });
-  return formatter.format(date); // YYYY-MM-DD
+  return formatter.format(date);
 };
 
 /**
- * Kal ki date IST mein (midnight processing ke liye)
+ * Kal ki date IST mein
  */
 const getYesterdayIST = () => {
   const now = new Date();
@@ -61,7 +74,7 @@ const getCurrentMonth = () => {
 };
 
 /**
- * Given month (YYYY-MM) ke total days count karo
+ * Given month ke total days
  */
 const getDaysInMonthFromString = (monthStr) => {
   const [year, month] = monthStr.split('-').map(Number);
@@ -70,15 +83,12 @@ const getDaysInMonthFromString = (monthStr) => {
 
 /**
  * Streak calculate karo — consecutive days with approved activities
- * @param {Array} dates - Array of "YYYY-MM-DD" strings (sorted desc)
- * @returns {Object} - { current, longest }
  */
 const calculateStreak = (dates) => {
   if (!dates || dates.length === 0) {
     return { current: 0, longest: 0 };
   }
 
-  // Unique dates nikalo, descending order mein
   const uniqueDates = [...new Set(dates)].sort().reverse();
 
   let current = 1;
@@ -100,7 +110,6 @@ const calculateStreak = (dates) => {
     if (tempStreak > longest) longest = tempStreak;
   }
 
-  // Current streak check — aaj ya kal se start hona chahiye
   const today = formatDateIST();
   const yesterday = getYesterdayIST();
 
@@ -118,10 +127,50 @@ const calculateStreak = (dates) => {
       }
     }
   } else {
-    current = 0; // Streak broken
+    current = 0;
   }
 
   return { current, longest };
+};
+
+// ═══════════════════════════════════════════
+// STREAK MILESTONE HELPERS
+// ═══════════════════════════════════════════
+
+/**
+ * Given streak count ke liye exact milestone (agar hai toh)
+ */
+const getStreakMilestone = (streakCount) => {
+  return STREAK_MILESTONES.find((m) => m.days === streakCount) || null;
+};
+
+/**
+ * Next milestone (streak ke aage)
+ */
+const getNextMilestone = (currentStreak) => {
+  const next = STREAK_MILESTONES.find((m) => m.days > currentStreak);
+  if (!next) return null;
+
+  return {
+    ...next,
+    daysAway: next.days - currentStreak,
+  };
+};
+
+/**
+ * Last achieved milestone (streak ke peeche)
+ */
+const getLastMilestone = (currentStreak) => {
+  const achieved = STREAK_MILESTONES.filter((m) => m.days <= currentStreak);
+  if (achieved.length === 0) return null;
+  return achieved[achieved.length - 1];
+};
+
+/**
+ * Saare earned badges (longest streak ke hisaab se)
+ */
+const getEarnedMilestones = (longestStreak) => {
+  return STREAK_MILESTONES.filter((m) => m.days <= longestStreak);
 };
 
 module.exports = {
@@ -133,4 +182,11 @@ module.exports = {
   getCurrentMonth,
   getDaysInMonthFromString,
   calculateStreak,
+  // Milestones
+  STREAK_MILESTONES,
+  MILESTONE_DAYS,
+  getStreakMilestone,
+  getNextMilestone,
+  getLastMilestone,
+  getEarnedMilestones,
 };

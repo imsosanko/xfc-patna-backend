@@ -33,6 +33,64 @@ const UserSchema = new mongoose.Schema({
     enum: ['ACTIVE', 'BLOCKED', 'SUSPENDED'],
     default: 'ACTIVE',
   },
+
+  // ═══════════════════════════════════════════
+  // NOTIFICATION PREFERENCES
+  // ═══════════════════════════════════════════
+  notification_preferences: {
+    daily_reminder: {
+      type: Boolean,
+      default: true,
+    },
+    streak_alerts: {
+      type: Boolean,
+      default: true,
+    },
+    meetup_reminders: {
+      type: Boolean,
+      default: true,
+    },
+    activity_updates: {
+      type: Boolean,
+      default: true,
+    },
+    broadcasts: {
+      type: Boolean,
+      default: true,
+    },
+    points_updates: {
+      type: Boolean,
+      default: true,
+    },
+  },
+
+  // ═══════════════════════════════════════════
+  // STREAK BADGES
+  // ═══════════════════════════════════════════
+  badges: [
+    {
+      code: {
+        type: String,
+        required: true,
+      },
+      title: {
+        type: String,
+        required: true,
+      },
+      emoji: {
+        type: String,
+        default: '🏅',
+      },
+      streak_days: {
+        type: Number,
+        required: true,
+      },
+      earned_at: {
+        type: Date,
+        default: Date.now,
+      },
+    },
+  ],
 }, { timestamps: true });
 
 module.exports = mongoose.model('User', UserSchema);

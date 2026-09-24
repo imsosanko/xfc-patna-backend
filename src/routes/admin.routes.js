@@ -28,7 +28,13 @@ const {
   deleteMeetup,
   listMeetupsAdmin,
   getMeetupRSVPs,
+  lockLocation,
+  unlockLocation,
   checkInMember,
+  reviewXLink,
+  reviewInstagramLink,
+  editMemberRSVP,
+  downloadMeetupAttendancePDF,
   // Notifications
   broadcastToMembers,
   getBroadcastHistory,
@@ -98,17 +104,36 @@ router.get('/processing-status', adminProtect, getProcessingStatus);
 // ═══════════════════════════════════════════
 // MEETUPS
 // ═══════════════════════════════════════════
+
+// Create / List / Update / Delete
 router.post('/meetups', adminProtect, createMeetup);
 router.get('/meetups', adminProtect, listMeetupsAdmin);
 router.patch('/meetups/:id', adminProtect, updateMeetup);
 router.delete('/meetups/:id', adminProtect, deleteMeetup);
+
+// RSVPs list
 router.get('/meetups/:id/rsvps', adminProtect, getMeetupRSVPs);
+
+// Location lock
+router.post('/meetups/:id/lock-location', adminProtect, lockLocation);
+router.post('/meetups/:id/unlock-location', adminProtect, superAdminOnly, unlockLocation);
+
+// Physical check-in (Admin manual)
 router.post('/meetups/:id/check-in', adminProtect, checkInMember);
+
+// Review submissions
+router.patch('/meetups/:id/rsvps/:rsvp_id/x-link/review', adminProtect, reviewXLink);
+router.patch('/meetups/:id/rsvps/:rsvp_id/instagram-link/review', adminProtect, reviewInstagramLink);
+
+// Edit member RSVP (Admin override)
+router.patch('/meetups/:id/rsvps/:rsvp_id', adminProtect, editMemberRSVP);
+
+// Download Attendance PDF ← NEW
+router.get('/meetups/:id/attendance-pdf', adminProtect, downloadMeetupAttendancePDF);
 
 // ═══════════════════════════════════════════
 // NOTIFICATIONS / BROADCAST
 // ═══════════════════════════════════════════
-// IMPORTANT: /broadcast/delete and /broadcast/update must come BEFORE /broadcast
 router.post('/broadcast/delete', adminProtect, deleteBroadcast);
 router.post('/broadcast/update', adminProtect, updateBroadcast);
 router.get('/broadcast/history', adminProtect, getBroadcastHistory);

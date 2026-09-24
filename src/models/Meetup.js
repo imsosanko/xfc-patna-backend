@@ -18,7 +18,7 @@ const MeetupSchema = new mongoose.Schema({
   date: {
     type: Date,
     required: true,
-    index: true,
+    // ❌ index: true hataya (neeche schema.index mein already hai)
   },
   end_time: {
     type: Date,
@@ -44,7 +44,7 @@ const MeetupSchema = new mongoose.Schema({
   },
   max_attendees: {
     type: Number,
-    default: 0, // 0 = no limit
+    default: 0,
   },
   status: {
     type: String,
@@ -55,7 +55,7 @@ const MeetupSchema = new mongoose.Schema({
   qr_code: {
     type: String,
     unique: true,
-    sparse: true, // allow multiple nulls
+    sparse: true,
     index: true,
   },
   created_by: {
@@ -63,7 +63,55 @@ const MeetupSchema = new mongoose.Schema({
     ref: 'Admin',
     required: true,
   },
-  // Stats (denormalized for speed)
+
+  // ═══════════════════════════════════════════
+  // LOCATION LOCK (Admin action)
+  // ═══════════════════════════════════════════
+  location_locked: {
+    type: Boolean,
+    default: false,
+    // ❌ index: true hataya (neeche schema.index mein already hai)
+  },
+  location_locked_at: {
+    type: Date,
+    default: null,
+  },
+  location_locked_by: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Admin',
+    default: null,
+  },
+  location_lat: {
+    type: Number,
+    default: null,
+  },
+  location_lng: {
+    type: Number,
+    default: null,
+  },
+  location_radius_meters: {
+    type: Number,
+    default: 100,
+  },
+
+  // ═══════════════════════════════════════════
+  // ATTENDANCE SCORE WEIGHTS
+  // ═══════════════════════════════════════════
+  attendance_weights: {
+    physical: { type: Number, default: 50 },
+    x_link: { type: Number, default: 25 },
+    instagram: { type: Number, default: 25 },
+  },
+
+  // ═══════════════════════════════════════════
+  // SUBMISSION DEADLINE
+  // ═══════════════════════════════════════════
+  submission_deadline: {
+    type: Date,
+    default: null,
+  },
+
+  // Stats
   total_rsvps: {
     type: Number,
     default: 0,
@@ -74,8 +122,11 @@ const MeetupSchema = new mongoose.Schema({
   },
 }, { timestamps: true });
 
-// Index for listing
+// ═══════════════════════════════════════════
+// INDEXES (sab yahan ek jagah)
+// ═══════════════════════════════════════════
 MeetupSchema.index({ status: 1, date: -1 });
 MeetupSchema.index({ date: 1 });
+MeetupSchema.index({ location_locked: 1 });
 
 module.exports = mongoose.model('Meetup', MeetupSchema);

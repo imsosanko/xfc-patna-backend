@@ -34,6 +34,7 @@ const SpecialActivitySchema = new mongoose.Schema({
     type: String,
     enum: ['DRAFT', 'LOCKED', 'OPEN', 'PAUSED', 'CLOSED'],
     default: 'DRAFT',
+    index: true,
   },
   approval_required: {
     type: Boolean,
@@ -51,6 +52,10 @@ const SpecialActivitySchema = new mongoose.Schema({
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Admin',
   },
+
+  // ═══════════════════════════════════════════
+  // REQUIREMENTS (Per-platform tasks)
+  // ═══════════════════════════════════════════
   requirements: [
     {
       platform: { type: String, required: true },
@@ -59,6 +64,30 @@ const SpecialActivitySchema = new mongoose.Schema({
       is_required: { type: Boolean, default: true },
     },
   ],
+
+  // ═══════════════════════════════════════════
+  // DENORMALIZED STATS (for speed)
+  // ═══════════════════════════════════════════
+  total_submissions: {
+    type: Number,
+    default: 0,
+  },
+  total_approved: {
+    type: Number,
+    default: 0,
+  },
+  total_rejected: {
+    type: Number,
+    default: 0,
+  },
+  total_pending: {
+    type: Number,
+    default: 0,
+  },
 }, { timestamps: true });
+
+// Query indexes
+SpecialActivitySchema.index({ status: 1, end_date: -1 });
+SpecialActivitySchema.index({ start_date: -1 });
 
 module.exports = mongoose.model('SpecialActivity', SpecialActivitySchema);

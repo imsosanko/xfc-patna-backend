@@ -2,12 +2,22 @@ require('dotenv').config();
 const app = require('./src/app');
 const connectDB = require('./src/config/db');
 const { startMidnightJob } = require('./src/jobs/midnightProcessor');
+const { startDailyReminderJob } = require('./src/jobs/dailyReminder');
+const { startStreakWarningJob } = require('./src/jobs/streakWarning');
+const { startMeetupReminderJob } = require('./src/jobs/meetupReminder');
 const { initBot, setWebhook } = require('./src/services/telegramBot.service');
 
 const start = async () => {
   try {
     await connectDB();
-    startMidnightJob();
+
+    // ═══════════════════════════════════════════
+    // START CRON JOBS
+    // ═══════════════════════════════════════════
+    startMidnightJob();        // 12:00 AM IST — Points processing
+    startDailyReminderJob();   // 8:00 PM IST  — Daily activity reminder
+    startStreakWarningJob();   // 9:00 PM IST  — Streak warnings + milestones
+    startMeetupReminderJob();  // 8:00 AM + every 30 min — Meetup reminders
 
     // Initialize Telegram Bot
     initBot();

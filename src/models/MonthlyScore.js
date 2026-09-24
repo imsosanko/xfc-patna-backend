@@ -10,7 +10,17 @@ const MonthlyScoreSchema = new mongoose.Schema({
     type: String,
     required: true,
   }, // YYYY-MM
+
   total_points: {
+    type: Number,
+    default: 0,
+  },
+
+  regular_points: {
+    type: Number,
+    default: 0,
+  },
+  bonus_points: {
     type: Number,
     default: 0,
   },
@@ -18,18 +28,15 @@ const MonthlyScoreSchema = new mongoose.Schema({
     type: Number,
     default: 0,
   },
-  regular_points: {
+  meetup_points: {
     type: Number,
     default: 0,
   },
-  meetup_points: {        // ← NEW
+  manual_adjustments: {
     type: Number,
     default: 0,
   },
-  manual_adjustments: {   // ← NEW (Feature 1 ke liye)
-    type: Number,
-    default: 0,
-  },
+
   verified_activities: {
     type: Number,
     default: 0,

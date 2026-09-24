@@ -72,7 +72,6 @@ const broadcastNotification = async ({
     return { success: true, ...results };
   }
 
-  // Step 1: Bulk create DB records
   const notifications = members.map((m) => ({
     member_id: m._id,
     type,
@@ -88,7 +87,6 @@ const broadcastNotification = async ({
     const created = await Notification.insertMany(notifications);
     results.notifications_created = created.length;
 
-    // Step 2: Prepare Telegram messages
     const telegramMessages = members
       .filter((m) => m.telegram_id)
       .map((m) => ({
@@ -97,14 +95,12 @@ const broadcastNotification = async ({
         options: {},
       }));
 
-    // Step 3: Send bulk DMs
     if (telegramMessages.length > 0) {
       const sendResults = await sendBulkMessages(telegramMessages, 50);
       results.telegram_sent = sendResults.sent;
       results.telegram_failed = sendResults.failed;
       results.errors = sendResults.errors;
 
-      // Step 4: Update DB records for successfully sent
       const sentTelegramIds = members
         .filter((m) => m.telegram_id)
         .slice(0, sendResults.sent)
@@ -167,6 +163,72 @@ const formatPointsAdjusted = ({ amount, reason, newTotal }) => ({
   data: { amount, reason },
 });
 
+// ═══════════════════════════════════════════
+// NEW: DAILY REMINDER (Evening 8 PM)
+// ═══════════════════════════════════════════
+const formatDailyReminder = ({ name, currentPoints, streak }) => ({
+  title: '📝 Daily Activity Reminder',
+  message: `📝 *Daily Reminder*\n\nHey ${name || 'Member'}! 👋\n\nYou haven't submitted your activity today. Don't miss out!\n\n📊 Current Points: *${Number(currentPoints).toFixed(2)}*\n🔥 Streak: *${streak || 0} days*\n\n⏰ Submit before midnight!\n\n👉 Open XFC Patna app to submit now.`,
+  type: 'DAILY_REMINDER',
+  data: { currentPoints, streak },
+});
+
+// ═══════════════════════════════════════════
+// NEW: STREAK WARNING (If missed yesterday)
+// ═══════════════════════════════════════════
+const formatStreakWarning = ({ name, currentStreak, longestStreak }) => ({
+  title: '⚠️ Streak Broken!',
+  message: `⚠️ *Streak Warning*\n\nHi ${name || 'Member'},\n\nYour streak was broken yesterday 😟\n\n📉 Broken Streak: *${currentStreak} days*\n🏆 Longest Streak: *${longestStreak} days*\n\n💪 No worries! Start fresh today.\n\n👉 Submit activity today to rebuild your streak!`,
+  type: 'STREAK_WARNING',
+  data: { currentStreak, longestStreak },
+});
+
+// ═══════════════════════════════════════════
+// NEW: STREAK MILESTONE (7, 14, 30, 60, 90, 100 days)
+// ═══════════════════════════════════════════
+const formatStreakMilestone = ({ name, streak }) => {
+  let emoji = '🔥';
+  let title = '🔥 Streak Milestone!';
+  let milestoneText = '';
+
+  if (streak === 7) {
+    emoji = '🔥';
+    milestoneText = '🎉 1 Week Streak!';
+  } else if (streak === 14) {
+    emoji = '⚡';
+    milestoneText = '🎉 2 Week Streak!';
+  } else if (streak === 30) {
+    emoji = '💎';
+    milestoneText = '🎉 1 Month Streak!';
+  } else if (streak === 60) {
+    emoji = '👑';
+    milestoneText = '🎉 2 Month Streak!';
+  } else if (streak === 90) {
+    emoji = '🏆';
+    milestoneText = '🎉 3 Month Streak!';
+  } else if (streak === 100) {
+    emoji = '🌟';
+    milestoneText = '🎉 100 Days Streak!';
+  }
+
+  return {
+    title: `${emoji} Streak Milestone Reached!`,
+    message: `${emoji} *Streak Milestone!*\n\nCongratulations ${name || 'Member'}! 🎉\n\n${milestoneText}\n\n🔥 Current Streak: *${streak} days*\n\n💪 Keep it up! You're on fire!`,
+    type: 'STREAK_MILESTONE',
+    data: { streak },
+  };
+};
+
+// ═══════════════════════════════════════════
+// NEW: MEETUP 2 HOURS BEFORE
+// ═══════════════════════════════════════════
+const formatMeetupUrgent = ({ meetup }) => ({
+  title: '🚨 Meetup in 2 Hours!',
+  message: `🚨 *Meetup in 2 Hours!*\n\n*${meetup.title}*\n\n📍 ${meetup.venue}\n🕐 ${new Date(meetup.date).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' })}\n\n🏃 Leave now! Check-in will open once admin locks the location.`,
+  type: 'MEETUP_REMINDER_2H',
+  data: { meetup_id: meetup._id },
+});
+
 module.exports = {
   sendNotification,
   broadcastNotification,
@@ -175,4 +237,8 @@ module.exports = {
   formatSpecialCampaign,
   formatMeetupReminder,
   formatPointsAdjusted,
+  formatDailyReminder,
+  formatStreakWarning,
+  formatStreakMilestone,
+  formatMeetupUrgent,
 };

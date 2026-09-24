@@ -7,21 +7,31 @@ const {
   formatDateIST,
   getYesterdayIST,
   getDaysInMonthFromString,
-  calculateMonthlyPoints,
   calculateStreak,
 } = require('../services/points.service');
+
+// ═══════════════════════════════════════════
+// HELPER: Round to 2 decimals
+// ═══════════════════════════════════════════
+const round2 = (n) => Math.round(n * 100) / 100;
+
+// ═══════════════════════════════════════════
+// HELPER: Daily points based on post count
+// 1 post   → 1 pt
+// 2 posts  → 2 pts
+// 3+ posts → 3.33 pts (max cap per day)
+// ═══════════════════════════════════════════
+const calculateDailyPoints = (postCount) => {
+  if (!postCount || postCount <= 0) return 0;
+  if (postCount === 1) return 1;
+  if (postCount === 2) return 2;
+  return 3.33;
+};
 
 /**
  * ═══════════════════════════════════════════════════════════
  * DAILY PROCESSING LOGIC
  * ═══════════════════════════════════════════════════════════
- * Ye function given date ka data process karta hai:
- * 1. Duplicate check karta hai (idempotency)
- * 2. Sab approved activities fetch karta hai
- * 3. Daily summary banata hai
- * 4. Monthly score update karta hai
- * 5. Streak update karta hai
- * 6. Leaderboard rank update karta hai
  */
 const processDay = async (dateStr) => {
   console.log('\n═══════════════════════════════════════════');
@@ -45,7 +55,7 @@ const processDay = async (dateStr) => {
       };
     }
 
-    const monthStr = dateStr.substring(0, 7); // YYYY-MM
+    const monthStr = dateStr.substring(0, 7);
     const totalDaysInMonth = getDaysInMonthFromString(monthStr);
 
     console.log(`📅 Month: ${monthStr} | Days in month: ${totalDaysInMonth}`);
@@ -62,7 +72,6 @@ const processDay = async (dateStr) => {
 
     if (activities.length === 0) {
       console.log(`ℹ️  No approved activities for ${dateStr}. Skipping.`);
-      // Lock set karo taaki dobara process na ho
       await SystemSetting.create({ key: lockKey, value: true });
       return {
         success: true,
@@ -100,7 +109,7 @@ const processDay = async (dateStr) => {
     for (const [memberId, data] of memberMap.entries()) {
       const approvedCount = data.activities.length;
 
-      // Daily Summary update karo
+      // Daily Summary update
       await DailySummary.findOneAndUpdate(
         { member_id: data.member_id, date: dateStr },
         {
@@ -109,6 +118,7 @@ const processDay = async (dateStr) => {
             platform_counts: data.platforms,
             day_completed: true,
             processing_status: 'PROCESSED',
+            daily_points: calculateDailyPoints(approvedCount),
           },
           $setOnInsert: {
             month: monthStr,
@@ -117,7 +127,7 @@ const processDay = async (dateStr) => {
         { upsert: true }
       );
 
-      // Monthly Score update karo
+      // Monthly Score fetch/create
       let monthlyScore = await MonthlyScore.findOne({
         member_id: data.member_id,
         month: monthStr,
@@ -133,7 +143,7 @@ const processDay = async (dateStr) => {
         });
       }
 
-      // Verified activities count update karo
+      // Verified activities count
       const monthActivitiesCount = await Activity.countDocuments({
         member_id: data.member_id,
         month: monthStr,
@@ -141,7 +151,7 @@ const processDay = async (dateStr) => {
       });
       monthlyScore.verified_activities = monthActivitiesCount;
 
-      // Active days count karo (unique dates with approved activities)
+      // Active days
       const activeDates = await Activity.distinct('date', {
         member_id: data.member_id,
         month: monthStr,
@@ -149,16 +159,67 @@ const processDay = async (dateStr) => {
       });
       monthlyScore.active_days = activeDates.length;
 
-      // Points calculate karo
-      const { points, percentage } = calculateMonthlyPoints(
-        activeDates.length,
-        totalDaysInMonth
-      );
-      monthlyScore.regular_points = points;
-      monthlyScore.total_points = points + (monthlyScore.special_points || 0);
-      monthlyScore.percentage = percentage;
+      // ═══════════════════════════════════════════
+      // Calculate regular_points from daily post counts
+      // Rule: 1 post = 1pt | 2 posts = 2pts | 3+ posts = 3.33pts (daily cap)
+      // ═══════════════════════════════════════════
+      const monthActivities = await Activity.find({
+        member_id: data.member_id,
+        month: monthStr,
+        status: 'APPROVED',
+      })
+        .select('date')
+        .lean();
 
-      // Streak calculate karo
+      // Group by date
+      const dateCountMap = {};
+      monthActivities.forEach((a) => {
+        dateCountMap[a.date] = (dateCountMap[a.date] || 0) + 1;
+      });
+
+      // Sum daily points
+      let regularPoints = 0;
+      Object.values(dateCountMap).forEach((count) => {
+        regularPoints += calculateDailyPoints(count);
+      });
+      regularPoints = round2(regularPoints);
+
+      // ═══════════════════════════════════════════
+      // BONUS LOGIC
+      // ═══════════════════════════════════════════
+      // Agar member ne poora month (har din) kam se kam 1 post kiya
+      // toh total 100 points guarantee karo
+      // Warna sirf earned points
+      const totalActiveDates = Object.keys(dateCountMap).length;
+      let bonusPoints = 0;
+
+      if (totalActiveDates === totalDaysInMonth) {
+        // Full month active → 100 points guaranteed
+        bonusPoints = round2(100 - regularPoints);
+        if (bonusPoints < 0) bonusPoints = 0; // safety
+      }
+
+      // Cap regular + bonus at 100 (31-day month mein 103.23 → 100)
+      let totalRegularWithBonus = round2(regularPoints + bonusPoints);
+      if (totalRegularWithBonus > 100) {
+        totalRegularWithBonus = 100;
+      }
+
+      monthlyScore.regular_points = totalRegularWithBonus;
+      // Bonus ko alag store karo (audit ke liye)
+      monthlyScore.bonus_points = bonusPoints;
+
+      // Total = regular (with bonus) + special + meetup + manual
+      const totalPoints = round2(
+        totalRegularWithBonus +
+          (monthlyScore.special_points || 0) +
+          (monthlyScore.meetup_points || 0) +
+          (monthlyScore.manual_adjustments || 0)
+      );
+      monthlyScore.total_points = totalPoints;
+      monthlyScore.percentage = Math.min(100, round2(totalPoints));
+
+      // Streak
       const allDates = await Activity.distinct('date', {
         member_id: data.member_id,
         status: 'APPROVED',
@@ -170,15 +231,15 @@ const processDay = async (dateStr) => {
         monthlyScore.longest_streak || 0
       );
 
-      // Last activity timestamp
-      monthlyScore.last_activity_at = data.activities[data.activities.length - 1].submitted_at;
+      monthlyScore.last_activity_at =
+        data.activities[data.activities.length - 1].submitted_at;
 
       await monthlyScore.save();
       processedCount++;
     }
 
     // ═══════════════════════════════════════════
-    // STEP 5: Idempotency lock set karo
+    // STEP 5: Idempotency lock
     // ═══════════════════════════════════════════
     await SystemSetting.create({
       key: lockKey,
@@ -215,14 +276,16 @@ const processDay = async (dateStr) => {
  * ═══════════════════════════════════════════════════════════
  */
 const startMidnightJob = () => {
-  // Cron expression: '0 0 * * *' = Every day at 12:00 AM
-  // timezone: 'Asia/Kolkata'
   cron.schedule(
     '0 0 * * *',
     async () => {
       console.log('\n🕛 MIDNIGHT CRON JOB TRIGGERED');
       console.log(`📅 Time: ${new Date().toISOString()}`);
-      console.log(`🇮🇳 IST Time: ${new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })}`);
+      console.log(
+        `🇮🇳 IST Time: ${new Date().toLocaleString('en-IN', {
+          timeZone: 'Asia/Kolkata',
+        })}`
+      );
 
       const yesterday = getYesterdayIST();
       await processDay(yesterday);

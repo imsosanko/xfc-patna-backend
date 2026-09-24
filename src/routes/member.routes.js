@@ -5,6 +5,8 @@ const {
   getProfile,
   createOrUpdateProfile,
   getPointsBreakdown,
+  getNotificationPreferences,
+  updateNotificationPreferences,
 } = require('../controllers/member.controller');
 const {
   getMyNotifications,
@@ -24,6 +26,12 @@ router.put('/profile', protect, createOrUpdateProfile);
 // POINTS
 // ═══════════════════════════════════════════
 router.get('/points-breakdown', protect, getPointsBreakdown);
+
+// ═══════════════════════════════════════════
+// NOTIFICATION PREFERENCES ← NEW
+// ═══════════════════════════════════════════
+router.get('/notification-preferences', protect, getNotificationPreferences);
+router.patch('/notification-preferences', protect, updateNotificationPreferences);
 
 // ═══════════════════════════════════════════
 // NOTIFICATIONS
