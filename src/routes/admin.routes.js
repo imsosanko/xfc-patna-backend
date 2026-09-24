@@ -44,6 +44,12 @@ const {
   exportMembersCSV,
   exportMeetupAttendanceCSV,
   exportActivityLogCSV,
+  // Badge Manager ← NEW
+  getBadgesCatalog,
+  searchUsersForBadges,
+  giveBadgeToUser,
+  giveAllBadgesToUser,
+  removeBadgeFromUser,
 } = require('../controllers/admin.controller');
 const {
   getMe,
@@ -128,8 +134,21 @@ router.patch('/meetups/:id/rsvps/:rsvp_id/instagram-link/review', adminProtect, 
 // Edit member RSVP (Admin override)
 router.patch('/meetups/:id/rsvps/:rsvp_id', adminProtect, editMemberRSVP);
 
-// Download Attendance PDF ← NEW
+// Download Attendance PDF
 router.get('/meetups/:id/attendance-pdf', adminProtect, downloadMeetupAttendancePDF);
+
+// ═══════════════════════════════════════════
+// BADGE MANAGER ← NEW
+// ═══════════════════════════════════════════
+
+// View catalog & search — any admin can view
+router.get('/badges/catalog', adminProtect, getBadgesCatalog);
+router.get('/badges/users', adminProtect, searchUsersForBadges);
+
+// Give/Remove badges — SUPER ADMIN ONLY
+router.post('/badges/users/:id/give', adminProtect, superAdminOnly, giveBadgeToUser);
+router.post('/badges/users/:id/give-all', adminProtect, superAdminOnly, giveAllBadgesToUser);
+router.delete('/badges/users/:id/remove/:badge_code', adminProtect, superAdminOnly, removeBadgeFromUser);
 
 // ═══════════════════════════════════════════
 // NOTIFICATIONS / BROADCAST

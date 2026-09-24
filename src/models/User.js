@@ -89,6 +89,48 @@ const UserSchema = new mongoose.Schema({
         type: Date,
         default: Date.now,
       },
+      awarded_by: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'Admin',
+        default: null,
+      },
+    },
+  ],
+
+  // ═══════════════════════════════════════════
+  // ADMIN ROLE BADGES (Staff/Team)
+  // ═══════════════════════════════════════════
+  admin_badges: [
+    {
+      code: {
+        type: String,
+        required: true,
+      },
+      title: {
+        type: String,
+        required: true,
+      },
+      emoji: {
+        type: String,
+        default: '🛡️',
+      },
+      color: {
+        type: String,
+        default: '#FF6900',
+      },
+      awarded_at: {
+        type: Date,
+        default: Date.now,
+      },
+      awarded_by: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'Admin',
+        default: null,
+      },
+      note: {
+        type: String,
+        default: '',
+      },
     },
   ],
 }, { timestamps: true });

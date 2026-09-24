@@ -663,9 +663,6 @@ const getAnalytics = async (req, res) => {
   try {
     const { range = '6months' } = req.query;
 
-    // ═══════════════════════════════════════════
-    // DATE RANGE CALCULATION
-    // ═══════════════════════════════════════════
     const now = new Date();
     let startDate;
 
@@ -685,9 +682,6 @@ const getAnalytics = async (req, res) => {
 
     const startDateStr = formatDateIST(startDate);
 
-    // ═══════════════════════════════════════════
-    // 1. MONTHLY TREND (last 6 months)
-    // ═══════════════════════════════════════════
     const months = [];
     for (let i = 5; i >= 0; i--) {
       const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
@@ -719,19 +713,11 @@ const getAnalytics = async (req, res) => {
       },
     ]);
 
-    // ═══════════════════════════════════════════
-    // 2. DAILY ACTIVE MEMBERS (last 30 days)
-    // ═══════════════════════════════════════════
     const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
     const thirtyDaysAgoStr = formatDateIST(thirtyDaysAgo);
 
     const dailyActive = await Activity.aggregate([
-      {
-        $match: {
-          date: { $gte: thirtyDaysAgoStr },
-          status: 'APPROVED',
-        },
-      },
+      { $match: { date: { $gte: thirtyDaysAgoStr }, status: 'APPROVED' } },
       {
         $group: {
           _id: '$date',
@@ -750,9 +736,6 @@ const getAnalytics = async (req, res) => {
       },
     ]);
 
-    // ═══════════════════════════════════════════
-    // 3. PLATFORM DISTRIBUTION
-    // ═══════════════════════════════════════════
     const platformDist = await Activity.aggregate([
       { $match: { date: { $gte: startDateStr } } },
       { $group: { _id: '$platform', count: { $sum: 1 } } },
@@ -760,9 +743,6 @@ const getAnalytics = async (req, res) => {
       { $sort: { count: -1 } },
     ]);
 
-    // ═══════════════════════════════════════════
-    // 4. TOP MEMBERS (this month)
-    // ═══════════════════════════════════════════
     const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
     const topMembers = await Activity.aggregate([
       { $match: { month: currentMonth, status: 'APPROVED' } },
@@ -789,9 +769,6 @@ const getAnalytics = async (req, res) => {
       },
     ]);
 
-    // ═══════════════════════════════════════════
-    // 5. STREAK LEADERBOARD
-    // ═══════════════════════════════════════════
     const streakLeaderboard = await MonthlyScore.find({
       month: currentMonth,
       longest_streak: { $gt: 0 },
@@ -810,9 +787,6 @@ const getAnalytics = async (req, res) => {
         badges: (s.member_id.badges || []).length,
       }));
 
-    // ═══════════════════════════════════════════
-    // 6. MEETUP STATS
-    // ═══════════════════════════════════════════
     const [
       totalMeetups,
       publishedMeetups,
@@ -833,9 +807,6 @@ const getAnalytics = async (req, res) => {
       .select('title date status total_rsvps total_attended')
       .lean();
 
-    // ═══════════════════════════════════════════
-    // 7. SPECIAL ACTIVITIES STATS
-    // ═══════════════════════════════════════════
     const [
       totalSpecials,
       openSpecials,
@@ -850,9 +821,6 @@ const getAnalytics = async (req, res) => {
       SpecialSubmission.countDocuments({ status: { $in: ['SUBMITTED', 'UNDER_REVIEW'] } }),
     ]);
 
-    // ═══════════════════════════════════════════
-    // 8. MONTH-OVER-MONTH COMPARISON
-    // ═══════════════════════════════════════════
     const lastMonthDate = new Date(now.getFullYear(), now.getMonth() - 1, 1);
     const lastMonthStr = `${lastMonthDate.getFullYear()}-${String(lastMonthDate.getMonth() + 1).padStart(2, '0')}`;
 
@@ -907,9 +875,6 @@ const getAnalytics = async (req, res) => {
       },
     };
 
-    // ═══════════════════════════════════════════
-    // RESPONSE
-    // ═══════════════════════════════════════════
     res.json({
       success: true,
       range,
@@ -2233,6 +2198,269 @@ const updateBroadcast = async (req, res) => {
 };
 
 // ═══════════════════════════════════════════
+// BADGE MANAGER ← NEW
+// ═══════════════════════════════════════════
+
+const BADGES_CATALOG = {
+  streak: [
+    { code: 'WEEK_WARRIOR',      title: 'Week Warrior',       emoji: '🔥', streak_days: 7 },
+    { code: 'FORTNIGHT_FIGHTER', title: 'Fortnight Fighter',  emoji: '⚡', streak_days: 14 },
+    { code: 'MONTHLY_MASTER',    title: 'Monthly Master',     emoji: '💎', streak_days: 30 },
+    { code: 'BIMONTHLY_BOSS',    title: 'Bimonthly Boss',     emoji: '👑', streak_days: 60 },
+    { code: 'QUARTERLY_KING',    title: 'Quarterly King',     emoji: '🏆', streak_days: 90 },
+    { code: 'CENTURY_CHAMPION',  title: 'Century Champion',   emoji: '🌟', streak_days: 100 },
+    { code: 'HALF_YEAR_HERO',    title: 'Half-Year Hero',     emoji: '🎖️', streak_days: 180 },
+    { code: 'YEARLY_LEGEND',     title: 'Yearly Legend',      emoji: '💫', streak_days: 365 },
+  ],
+  admin: [
+    { code: 'FOUNDER',        title: 'Founder',         emoji: '🏛️', color: '#FFD700' },
+    { code: 'SUPER_ADMIN',    title: 'Super Admin',     emoji: '👑', color: '#FF6900' },
+    { code: 'ADMIN',          title: 'Admin',           emoji: '🛡️', color: '#3B82F6' },
+    { code: 'VERIFIER',       title: 'Verifier',        emoji: '✅', color: '#10B981' },
+    { code: 'REPORT_ADMIN',   title: 'Report Admin',    emoji: '📊', color: '#8B5CF6' },
+    { code: 'SPECIAL_ADMIN',  title: 'Special Admin',   emoji: '⭐', color: '#F59E0B' },
+    { code: 'MODERATOR',      title: 'Moderator',       emoji: '🛡️', color: '#EC4899' },
+    { code: 'TEAM_MEMBER',    title: 'Team Member',     emoji: '🤝', color: '#06B6D4' },
+  ],
+};
+
+const getBadgesCatalog = async (req, res) => {
+  try {
+    res.json({ success: true, catalog: BADGES_CATALOG });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+};
+
+const searchUsersForBadges = async (req, res) => {
+  try {
+    const { q = '', role = '', limit = 20 } = req.query;
+
+    let query = {};
+    if (role) query.role = role;
+
+    if (q) {
+      query.$or = [
+        { telegram_id: { $regex: q, $options: 'i' } },
+        { telegram_username: { $regex: q, $options: 'i' } },
+        { first_name: { $regex: q, $options: 'i' } },
+        { last_name: { $regex: q, $options: 'i' } },
+      ];
+    }
+
+    const users = await User.find(query)
+      .sort({ createdAt: -1 })
+      .limit(parseInt(limit))
+      .select('telegram_id telegram_username first_name last_name profile_photo_url role status badges admin_badges');
+
+    const enriched = await Promise.all(
+      users.map(async (u) => {
+        const profile = await MemberProfile.findOne({ user_id: u._id });
+        return {
+          id: u._id,
+          telegram_id: u.telegram_id,
+          telegram_username: u.telegram_username,
+          first_name: u.first_name,
+          last_name: u.last_name,
+          profile_photo_url: u.profile_photo_url,
+          role: u.role,
+          status: u.status,
+          full_name: profile?.full_name || `${u.first_name} ${u.last_name}`.trim() || 'Unknown',
+          xiaomi_id: profile?.xiaomi_id || 'N/A',
+          badges: u.badges || [],
+          admin_badges: u.admin_badges || [],
+        };
+      })
+    );
+
+    res.json({ success: true, count: enriched.length, users: enriched });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+};
+
+const giveBadgeToUser = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { badge_code, type = 'streak', note = '' } = req.body;
+
+    const user = await User.findById(id);
+    if (!user) {
+      return res.status(404).json({ success: false, error: 'User not found' });
+    }
+
+    if (type === 'admin') {
+      const badgeDef = BADGES_CATALOG.admin.find((b) => b.code === badge_code);
+      if (!badgeDef) {
+        return res.status(400).json({ success: false, error: 'Invalid admin badge code' });
+      }
+
+      const alreadyHas = (user.admin_badges || []).some((b) => b.code === badge_code);
+      if (alreadyHas) {
+        return res.status(400).json({ success: false, error: 'User already has this badge' });
+      }
+
+      await User.findByIdAndUpdate(id, {
+        $push: {
+          admin_badges: {
+            code: badgeDef.code,
+            title: badgeDef.title,
+            emoji: badgeDef.emoji,
+            color: badgeDef.color,
+            awarded_at: new Date(),
+            awarded_by: req.admin._id,
+            note: note || '',
+          },
+        },
+      });
+
+      await AuditLog.create({
+        admin_id: req.admin._id,
+        action: 'GIVE_ADMIN_BADGE',
+        target_type: 'MEMBER',
+        target_id: id,
+        new_value: { badge_code, type, note },
+      });
+
+      return res.json({ success: true, message: `Admin badge "${badgeDef.title}" awarded` });
+    } else {
+      const badgeDef = BADGES_CATALOG.streak.find((b) => b.code === badge_code);
+      if (!badgeDef) {
+        return res.status(400).json({ success: false, error: 'Invalid streak badge code' });
+      }
+
+      const alreadyHas = (user.badges || []).some((b) => b.code === badge_code);
+      if (alreadyHas) {
+        return res.status(400).json({ success: false, error: 'User already has this badge' });
+      }
+
+      await User.findByIdAndUpdate(id, {
+        $push: {
+          badges: {
+            code: badgeDef.code,
+            title: badgeDef.title,
+            emoji: badgeDef.emoji,
+            streak_days: badgeDef.streak_days,
+            earned_at: new Date(),
+            awarded_by: req.admin._id,
+          },
+        },
+      });
+
+      await AuditLog.create({
+        admin_id: req.admin._id,
+        action: 'GIVE_STREAK_BADGE',
+        target_type: 'MEMBER',
+        target_id: id,
+        new_value: { badge_code, type },
+      });
+
+      return res.json({ success: true, message: `Streak badge "${badgeDef.title}" awarded` });
+    }
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+};
+
+const giveAllBadgesToUser = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { include_admin = false } = req.body;
+
+    const user = await User.findById(id);
+    if (!user) {
+      return res.status(404).json({ success: false, error: 'User not found' });
+    }
+
+    const newStreakBadges = BADGES_CATALOG.streak
+      .filter((b) => !(user.badges || []).some((ub) => ub.code === b.code))
+      .map((b) => ({
+        code: b.code,
+        title: b.title,
+        emoji: b.emoji,
+        streak_days: b.streak_days,
+        earned_at: new Date(),
+        awarded_by: req.admin._id,
+      }));
+
+    const newAdminBadges = include_admin
+      ? BADGES_CATALOG.admin
+          .filter((b) => !(user.admin_badges || []).some((ub) => ub.code === b.code))
+          .map((b) => ({
+            code: b.code,
+            title: b.title,
+            emoji: b.emoji,
+            color: b.color,
+            awarded_at: new Date(),
+            awarded_by: req.admin._id,
+            note: 'Bulk awarded',
+          }))
+      : [];
+
+    if (newStreakBadges.length > 0) {
+      await User.findByIdAndUpdate(id, { $push: { badges: { $each: newStreakBadges } } });
+    }
+    if (newAdminBadges.length > 0) {
+      await User.findByIdAndUpdate(id, { $push: { admin_badges: { $each: newAdminBadges } } });
+    }
+
+    await AuditLog.create({
+      admin_id: req.admin._id,
+      action: 'GIVE_ALL_BADGES',
+      target_type: 'MEMBER',
+      target_id: id,
+      new_value: {
+        streak_count: newStreakBadges.length,
+        admin_count: newAdminBadges.length,
+      },
+    });
+
+    res.json({
+      success: true,
+      message: `Awarded ${newStreakBadges.length} streak + ${newAdminBadges.length} admin badges`,
+      streak_added: newStreakBadges.length,
+      admin_added: newAdminBadges.length,
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+};
+
+const removeBadgeFromUser = async (req, res) => {
+  try {
+    const { id, badge_code } = req.params;
+    const { type = 'streak' } = req.query;
+
+    const user = await User.findById(id);
+    if (!user) {
+      return res.status(404).json({ success: false, error: 'User not found' });
+    }
+
+    if (type === 'admin') {
+      await User.findByIdAndUpdate(id, {
+        $pull: { admin_badges: { code: badge_code } },
+      });
+    } else {
+      await User.findByIdAndUpdate(id, {
+        $pull: { badges: { code: badge_code } },
+      });
+    }
+
+    await AuditLog.create({
+      admin_id: req.admin._id,
+      action: 'REMOVE_BADGE',
+      target_type: 'MEMBER',
+      target_id: id,
+      new_value: { badge_code, type },
+    });
+
+    res.json({ success: true, message: 'Badge removed' });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+};
+
+// ═══════════════════════════════════════════
 // EXPORTS
 // ═══════════════════════════════════════════
 module.exports = {
@@ -2275,4 +2503,11 @@ module.exports = {
   exportMembersCSV,
   exportMeetupAttendanceCSV,
   exportActivityLogCSV,
+
+  // Badge Manager ← NEW
+  getBadgesCatalog,
+  searchUsersForBadges,
+  giveBadgeToUser,
+  giveAllBadgesToUser,
+  removeBadgeFromUser,
 };
