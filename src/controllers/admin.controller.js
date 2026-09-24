@@ -120,7 +120,7 @@ const getDashboardStats = async (req, res) => {
 };
 
 // ═══════════════════════════════════════════
-// LIST MEMBERS
+// LIST MEMBERS (with badges + admin_badges + role)
 // ═══════════════════════════════════════════
 const listMembers = async (req, res) => {
   try {
@@ -145,7 +145,11 @@ const listMembers = async (req, res) => {
     }
 
     const [members, total] = await Promise.all([
-      User.find(query).sort({ createdAt: -1 }).skip(skip).limit(parseInt(limit)),
+      User.find(query)
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(parseInt(limit))
+        .select('telegram_id telegram_username first_name last_name profile_photo_url status role badges admin_badges createdAt'),
       User.countDocuments(query),
     ]);
 
@@ -163,6 +167,9 @@ const listMembers = async (req, res) => {
           last_name: m.last_name,
           profile_photo_url: m.profile_photo_url,
           status: m.status,
+          role: m.role,
+          badges: m.badges || [],
+          admin_badges: m.admin_badges || [],
           full_name: profile?.full_name || 'N/A',
           xiaomi_id: profile?.xiaomi_id || 'N/A',
           whatsapp_number: profile?.whatsapp_number || 'N/A',
@@ -775,7 +782,7 @@ const getAnalytics = async (req, res) => {
     })
       .sort({ longest_streak: -1 })
       .limit(10)
-      .populate('member_id', 'first_name last_name profile_photo_url badges')
+      .populate('member_id', 'first_name last_name profile_photo_url badges admin_badges role')
       .lean();
 
     const streakData = streakLeaderboard
@@ -785,6 +792,7 @@ const getAnalytics = async (req, res) => {
         current: s.current_streak || 0,
         longest: s.longest_streak || 0,
         badges: (s.member_id.badges || []).length,
+        admin_badges: (s.member_id.admin_badges || []).length,
       }));
 
     const [
@@ -2198,7 +2206,7 @@ const updateBroadcast = async (req, res) => {
 };
 
 // ═══════════════════════════════════════════
-// BADGE MANAGER ← NEW
+// BADGE MANAGER
 // ═══════════════════════════════════════════
 
 const BADGES_CATALOG = {
@@ -2504,7 +2512,6 @@ module.exports = {
   exportMeetupAttendanceCSV,
   exportActivityLogCSV,
 
-  // Badge Manager ← NEW
   getBadgesCatalog,
   searchUsersForBadges,
   giveBadgeToUser,
