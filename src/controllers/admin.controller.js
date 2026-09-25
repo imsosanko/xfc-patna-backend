@@ -127,7 +127,10 @@ const listMembers = async (req, res) => {
     const { search, status, page = 1, limit = 50 } = req.query;
     const skip = (parseInt(page) - 1) * parseInt(limit);
 
-    let query = { role: 'MEMBER' };
+    // ⬇️ UPDATED: Include MEMBER + ADMIN + SUPER_ADMIN
+    let query = {
+      role: { $in: ['MEMBER', 'ADMIN', 'SUPER_ADMIN', 'VERIFIER', 'REPORT_ADMIN', 'SPECIAL_ADMIN'] },
+    };
     if (status) query.status = status;
 
     let memberIds = null;
