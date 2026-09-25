@@ -44,7 +44,7 @@ const {
   exportMembersCSV,
   exportMeetupAttendanceCSV,
   exportActivityLogCSV,
-  // Badge Manager ← NEW
+  // Badge Manager
   getBadgesCatalog,
   searchUsersForBadges,
   giveBadgeToUser,
@@ -102,50 +102,32 @@ router.get('/reports/export', adminProtect, exportMonthlyCSV);
 router.get('/analytics', adminProtect, getAnalytics);
 
 // ═══════════════════════════════════════════
-// MIDNIGHT JOB
+// MIDNIGHT JOB — Super Admin Only
 // ═══════════════════════════════════════════
-router.post('/trigger-midnight-job', adminProtect, triggerMidnightJob);
+router.post('/trigger-midnight-job', adminProtect, superAdminOnly, triggerMidnightJob);
 router.get('/processing-status', adminProtect, getProcessingStatus);
 
 // ═══════════════════════════════════════════
 // MEETUPS
 // ═══════════════════════════════════════════
-
-// Create / List / Update / Delete
 router.post('/meetups', adminProtect, createMeetup);
 router.get('/meetups', adminProtect, listMeetupsAdmin);
 router.patch('/meetups/:id', adminProtect, updateMeetup);
 router.delete('/meetups/:id', adminProtect, deleteMeetup);
-
-// RSVPs list
 router.get('/meetups/:id/rsvps', adminProtect, getMeetupRSVPs);
-
-// Location lock
 router.post('/meetups/:id/lock-location', adminProtect, lockLocation);
 router.post('/meetups/:id/unlock-location', adminProtect, superAdminOnly, unlockLocation);
-
-// Physical check-in (Admin manual)
 router.post('/meetups/:id/check-in', adminProtect, checkInMember);
-
-// Review submissions
 router.patch('/meetups/:id/rsvps/:rsvp_id/x-link/review', adminProtect, reviewXLink);
 router.patch('/meetups/:id/rsvps/:rsvp_id/instagram-link/review', adminProtect, reviewInstagramLink);
-
-// Edit member RSVP (Admin override)
 router.patch('/meetups/:id/rsvps/:rsvp_id', adminProtect, editMemberRSVP);
-
-// Download Attendance PDF
 router.get('/meetups/:id/attendance-pdf', adminProtect, downloadMeetupAttendancePDF);
 
 // ═══════════════════════════════════════════
-// BADGE MANAGER ← NEW
+// BADGE MANAGER
 // ═══════════════════════════════════════════
-
-// View catalog & search — any admin can view
 router.get('/badges/catalog', adminProtect, getBadgesCatalog);
 router.get('/badges/users', adminProtect, searchUsersForBadges);
-
-// Give/Remove badges — SUPER ADMIN ONLY
 router.post('/badges/users/:id/give', adminProtect, superAdminOnly, giveBadgeToUser);
 router.post('/badges/users/:id/give-all', adminProtect, superAdminOnly, giveAllBadgesToUser);
 router.delete('/badges/users/:id/remove/:badge_code', adminProtect, superAdminOnly, removeBadgeFromUser);
@@ -168,15 +150,9 @@ router.get('/export/activity-log', adminProtect, exportActivityLogCSV);
 // ═══════════════════════════════════════════
 // ADMIN MANAGEMENT
 // ═══════════════════════════════════════════
-
-// Self (any logged-in admin)
 router.get('/me', adminProtect, getMe);
 router.post('/me/change-password', adminProtect, changeOwnPassword);
-
-// Super admin only — permissions list
 router.get('/admins/permissions', adminProtect, superAdminOnly, getAvailablePermissions);
-
-// Super admin only — manage admins
 router.get('/admins', adminProtect, superAdminOnly, listAdmins);
 router.post('/admins', adminProtect, superAdminOnly, createAdmin);
 router.patch('/admins/:id', adminProtect, superAdminOnly, updateAdmin);
