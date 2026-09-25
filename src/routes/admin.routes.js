@@ -9,6 +9,8 @@ const {
   getDashboardStats,
   listMembers,
   updateMemberStatus,
+  getMemberDetail,          // ⬅️ NEW
+  updateMemberDetail,       // ⬅️ NEW
   adjustMemberPoints,
   getMemberPointsBreakdown,
   listActivities,
@@ -60,7 +62,6 @@ const {
   updateAdmin,
   resetAdminPassword,
   deleteAdmin,
-  // ⬇️ NEW IMPORTS
   searchMembersForLink,
   linkAdminToMember,
   unlinkAdminFromMember,
@@ -83,6 +84,12 @@ router.get('/members', adminProtect, listMembers);
 router.patch('/members/:id/status', adminProtect, updateMemberStatus);
 router.post('/members/:id/adjust-points', adminProtect, adjustMemberPoints);
 router.get('/members/:id/points-breakdown', adminProtect, getMemberPointsBreakdown);
+
+// ═══════════════════════════════════════════
+// MEMBER DETAIL (View + Edit) ⬅️ NEW
+// ═══════════════════════════════════════════
+router.get('/members/:id/detail', adminProtect, getMemberDetail);
+router.patch('/members/:id/detail', adminProtect, updateMemberDetail);
 
 // ═══════════════════════════════════════════
 // ACTIVITIES
@@ -164,7 +171,7 @@ router.post('/admins/:id/reset-password', adminProtect, superAdminOnly, resetAdm
 router.delete('/admins/:id', adminProtect, superAdminOnly, deleteAdmin);
 
 // ═══════════════════════════════════════════
-// ADMIN ↔ MEMBER LINKING (Super Admin only) ⬅️ NEW
+// ADMIN ↔ MEMBER LINKING (Super Admin only)
 // ═══════════════════════════════════════════
 router.get('/admins/search-members', adminProtect, superAdminOnly, searchMembersForLink);
 router.patch('/admins/:id/link-member', adminProtect, superAdminOnly, linkAdminToMember);

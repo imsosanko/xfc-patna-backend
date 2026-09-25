@@ -120,7 +120,7 @@ const getDashboardStats = async (req, res) => {
 };
 
 // ═══════════════════════════════════════════
-// LIST MEMBERS (with badges + admin_badges + role)
+// LIST MEMBERS
 // ═══════════════════════════════════════════
 const listMembers = async (req, res) => {
   try {
@@ -212,6 +212,167 @@ const updateMemberStatus = async (req, res) => {
 };
 
 // ═══════════════════════════════════════════
+// GET MEMBER DETAIL
+// ═══════════════════════════════════════════
+const getMemberDetail = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const month = formatDateIST().substring(0, 7);
+
+    const user = await User.findById(id);
+    if (!user) {
+      return res.status(404).json({ success: false, error: 'Member not found' });
+    }
+
+    const profile = await MemberProfile.findOne({ user_id: id });
+    const score = await MonthlyScore.findOne({ member_id: id, month });
+
+    const activities = await Activity.find({ member_id: id })
+      .sort({ submitted_at: -1 })
+      .limit(10);
+
+    const adminInfo = await Admin.findOne({ user_id: id }).select('name email role');
+
+    res.json({
+      success: true,
+      member: {
+        id: user._id,
+        telegram_id: user.telegram_id,
+        telegram_username: user.telegram_username,
+        first_name: user.first_name,
+        last_name: user.last_name,
+        profile_photo_url: user.profile_photo_url,
+        status: user.status,
+        role: user.role,
+        badges: user.badges || [],
+        admin_badges: user.admin_badges || [],
+        created_at: user.createdAt,
+        is_admin: !!adminInfo,
+        admin_role: adminInfo ? adminInfo.role : null,
+
+        full_name: profile?.full_name || 'N/A',
+        xiaomi_id: profile?.xiaomi_id || 'N/A',
+        whatsapp_number: profile?.whatsapp_number || 'N/A',
+        instagram_url: profile?.instagram_url || '',
+        facebook_url: profile?.facebook_url || '',
+        x_twitter_url: profile?.x_twitter_url || '',
+
+        progress: {
+          total_points: score?.total_points || 0,
+          regular_points: score?.regular_points || 0,
+          bonus_points: score?.bonus_points || 0,
+          special_points: score?.special_points || 0,
+          meetup_points: score?.meetup_points || 0,
+          manual_adjustments: score?.manual_adjustments || 0,
+          verified_activities: score?.verified_activities || 0,
+          active_days: score?.active_days || 0,
+          percentage: score?.percentage || 0,
+          current_streak: score?.current_streak || 0,
+          longest_streak: score?.longest_streak || 0,
+        },
+
+        recent_activities: activities.map((a) => ({
+          id: a._id,
+          platform: a.platform,
+          activity_type: a.activity_type,
+          url: a.url,
+          status: a.status,
+          submitted_at: a.submitted_at,
+          points: a.points,
+          rejection_reason: a.rejection_reason,
+        })),
+      },
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+};
+
+// ═══════════════════════════════════════════
+// UPDATE MEMBER DETAIL
+// Super Admin OR admin with 'members.edit' permission
+// ═══════════════════════════════════════════
+const updateMemberDetail = async (req, res) => {
+  try {
+    const isSuperAdmin = req.admin.role === 'SUPER_ADMIN';
+    const hasEditPermission = (req.admin.permissions || []).includes('members.edit');
+
+    if (!isSuperAdmin && !hasEditPermission) {
+      return res.status(403).json({
+        success: false,
+        error: 'You do not have permission to edit member details. Contact Super Admin.',
+      });
+    }
+
+    const { id } = req.params;
+    const {
+      full_name,
+      xiaomi_id,
+      whatsapp_number,
+      instagram_url,
+      facebook_url,
+      x_twitter_url,
+    } = req.body;
+
+    const user = await User.findById(id);
+    if (!user) {
+      return res.status(404).json({ success: false, error: 'Member not found' });
+    }
+
+    const profile = await MemberProfile.findOne({ user_id: id });
+    if (!profile) {
+      return res.status(404).json({ success: false, error: 'Member profile not found' });
+    }
+
+    const previousProfile = {
+      full_name: profile.full_name,
+      xiaomi_id: profile.xiaomi_id,
+      whatsapp_number: profile.whatsapp_number,
+      instagram_url: profile.instagram_url,
+      facebook_url: profile.facebook_url,
+      x_twitter_url: profile.x_twitter_url,
+    };
+
+    if (full_name) profile.full_name = full_name.trim();
+    if (xiaomi_id) profile.xiaomi_id = xiaomi_id.trim();
+    if (whatsapp_number) profile.whatsapp_number = whatsapp_number.trim();
+
+    if (instagram_url !== undefined) profile.instagram_url = instagram_url.trim();
+    if (facebook_url !== undefined) profile.facebook_url = facebook_url.trim();
+    if (x_twitter_url !== undefined) profile.x_twitter_url = x_twitter_url.trim();
+
+    await profile.save();
+
+    if (full_name) {
+      const nameParts = full_name.trim().split(' ');
+      user.first_name = nameParts[0] || '';
+      user.last_name = nameParts.slice(1).join(' ') || '';
+      await user.save();
+    }
+
+    await AuditLog.create({
+      admin_id: req.admin._id,
+      action: 'UPDATE_MEMBER_PROFILE',
+      target_type: 'MEMBER',
+      target_id: id,
+      previous_value: previousProfile,
+      new_value: {
+        full_name: profile.full_name,
+        xiaomi_id: profile.xiaomi_id,
+        whatsapp_number: profile.whatsapp_number,
+        instagram_url: profile.instagram_url,
+        facebook_url: profile.facebook_url,
+        x_twitter_url: profile.x_twitter_url,
+      },
+    });
+
+    res.json({ success: true, message: 'Member profile updated successfully' });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+};
+
+// ═══════════════════════════════════════════
 // ADMIN: ADJUST MEMBER POINTS
 // ═══════════════════════════════════════════
 const adjustMemberPoints = async (req, res) => {
@@ -237,7 +398,6 @@ const adjustMemberPoints = async (req, res) => {
       return res.status(404).json({ success: false, error: 'Member not found' });
     }
 
-    // 🔒 SECURITY CHECK 1: Cannot adjust own points
     if (req.admin.user_id && String(req.admin.user_id) === String(id)) {
       return res.status(403).json({
         success: false,
@@ -245,7 +405,6 @@ const adjustMemberPoints = async (req, res) => {
       });
     }
 
-    // 🔒 SECURITY CHECK 2: Normal Admin cannot adjust another admin's points
     if (req.admin.role !== 'SUPER_ADMIN') {
       const targetAdmin = await Admin.findOne({ user_id: id }).select('name role');
       if (targetAdmin) {
@@ -427,7 +586,6 @@ const approveActivity = async (req, res) => {
       return res.status(404).json({ success: false, error: 'Activity not found' });
     }
 
-    // 🔒 SECURITY CHECK: Cannot verify own activity
     if (req.admin.user_id && String(req.admin.user_id) === String(activity.member_id)) {
       return res.status(403).json({
         success: false,
@@ -491,7 +649,6 @@ const rejectActivity = async (req, res) => {
       return res.status(404).json({ success: false, error: 'Activity not found' });
     }
 
-    // 🔒 SECURITY CHECK: Cannot verify own activity
     if (req.admin.user_id && String(req.admin.user_id) === String(activity.member_id)) {
       return res.status(403).json({
         success: false,
@@ -2511,6 +2668,8 @@ module.exports = {
   getDashboardStats,
   listMembers,
   updateMemberStatus,
+  getMemberDetail,          // ⬅️ NEW
+  updateMemberDetail,       // ⬅️ NEW
   adjustMemberPoints,
   getMemberPointsBreakdown,
   listActivities,

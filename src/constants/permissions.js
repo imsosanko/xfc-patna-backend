@@ -3,6 +3,7 @@ const PERMISSIONS = {
   ACTIVITIES_MANAGE: 'activities.manage',
   MEMBERS_VIEW: 'members.view',
   MEMBERS_MANAGE: 'members.manage',
+  MEMBERS_EDIT: 'members.edit',          // ⬅️ NEW — Member profile edit permission
   SPECIAL_VIEW: 'special.view',
   SPECIAL_MANAGE: 'special.manage',
   MEETUPS_VIEW: 'meetups.view',
@@ -28,6 +29,7 @@ const PERMISSION_GROUPS = [
     permissions: [
       { key: PERMISSIONS.MEMBERS_VIEW, label: 'View Members', desc: 'See member list' },
       { key: PERMISSIONS.MEMBERS_MANAGE, label: 'Manage Members', desc: 'Block, adjust points' },
+      { key: PERMISSIONS.MEMBERS_EDIT, label: 'Edit Member Profiles', desc: 'Edit name, Xiaomi ID, WhatsApp, social links' },  // ⬅️ NEW
     ],
   },
   {
