@@ -1,6 +1,7 @@
 const MemberProfile = require('../models/MemberProfile');
 const MonthlyScore = require('../models/MonthlyScore');
 const User = require('../models/User');
+const Admin = require('../models/Admin');
 const { formatDateIST } = require('../services/points.service');
 
 /**
@@ -12,6 +13,9 @@ const getProfile = async (req, res) => {
 
     // Full user with badges + admin_badges
     const fullUser = await User.findById(req.user._id).select('badges admin_badges');
+
+    // ⬇️ NEW: Check if this user is an Admin
+    const adminInfo = await Admin.findOne({ user_id: req.user._id }).select('name role email').lean();
 
     res.json({
       success: true,
@@ -26,6 +30,11 @@ const getProfile = async (req, res) => {
         status: req.user.status,
         badges: fullUser?.badges || [],
         admin_badges: fullUser?.admin_badges || [],
+
+        // ⬇️ NEW: Admin info
+        is_admin: !!adminInfo,
+        admin_role: adminInfo ? adminInfo.role : null,
+        admin_name: adminInfo ? adminInfo.name : null,
       },
     });
   } catch (error) {
