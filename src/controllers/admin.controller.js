@@ -237,6 +237,25 @@ const adjustMemberPoints = async (req, res) => {
       return res.status(404).json({ success: false, error: 'Member not found' });
     }
 
+    // 🔒 SECURITY CHECK 1: Cannot adjust own points
+    if (req.admin.user_id && String(req.admin.user_id) === String(id)) {
+      return res.status(403).json({
+        success: false,
+        error: 'You cannot adjust your own points',
+      });
+    }
+
+    // 🔒 SECURITY CHECK 2: Normal Admin cannot adjust another admin's points
+    if (req.admin.role !== 'SUPER_ADMIN') {
+      const targetAdmin = await Admin.findOne({ user_id: id }).select('name role');
+      if (targetAdmin) {
+        return res.status(403).json({
+          success: false,
+          error: `You cannot adjust points of another admin (${targetAdmin.name}). Only Super Admin can do this.`,
+        });
+      }
+    }
+
     const month = formatDateIST().substring(0, 7);
 
     let score = await MonthlyScore.findOne({ member_id: id, month });
@@ -408,6 +427,14 @@ const approveActivity = async (req, res) => {
       return res.status(404).json({ success: false, error: 'Activity not found' });
     }
 
+    // 🔒 SECURITY CHECK: Cannot verify own activity
+    if (req.admin.user_id && String(req.admin.user_id) === String(activity.member_id)) {
+      return res.status(403).json({
+        success: false,
+        error: 'You cannot verify your own activity',
+      });
+    }
+
     activity.status = 'APPROVED';
     activity.verified_at = new Date();
     activity.verified_by = req.admin._id;
@@ -462,6 +489,14 @@ const rejectActivity = async (req, res) => {
     const activity = await Activity.findById(id);
     if (!activity) {
       return res.status(404).json({ success: false, error: 'Activity not found' });
+    }
+
+    // 🔒 SECURITY CHECK: Cannot verify own activity
+    if (req.admin.user_id && String(req.admin.user_id) === String(activity.member_id)) {
+      return res.status(403).json({
+        success: false,
+        error: 'You cannot verify your own activity',
+      });
     }
 
     activity.status = 'REJECTED';

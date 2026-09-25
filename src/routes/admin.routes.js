@@ -60,6 +60,10 @@ const {
   updateAdmin,
   resetAdminPassword,
   deleteAdmin,
+  // ⬇️ NEW IMPORTS
+  searchMembersForLink,
+  linkAdminToMember,
+  unlinkAdminFromMember,
 } = require('../controllers/adminManagement.controller');
 
 // ═══════════════════════════════════════════
@@ -158,5 +162,12 @@ router.post('/admins', adminProtect, superAdminOnly, createAdmin);
 router.patch('/admins/:id', adminProtect, superAdminOnly, updateAdmin);
 router.post('/admins/:id/reset-password', adminProtect, superAdminOnly, resetAdminPassword);
 router.delete('/admins/:id', adminProtect, superAdminOnly, deleteAdmin);
+
+// ═══════════════════════════════════════════
+// ADMIN ↔ MEMBER LINKING (Super Admin only) ⬅️ NEW
+// ═══════════════════════════════════════════
+router.get('/admins/search-members', adminProtect, superAdminOnly, searchMembersForLink);
+router.patch('/admins/:id/link-member', adminProtect, superAdminOnly, linkAdminToMember);
+router.delete('/admins/:id/unlink-member', adminProtect, superAdminOnly, unlinkAdminFromMember);
 
 module.exports = router;

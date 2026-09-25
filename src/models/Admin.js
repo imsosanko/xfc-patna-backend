@@ -27,6 +27,17 @@ const AdminSchema = new mongoose.Schema({
     type: [String],
     default: [],
   },
+
+  // ═══════════════════════════════════════════
+  // ✅ NEW: LINK TO MEMBER (User)
+  // ═══════════════════════════════════════════
+  user_id: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User',
+    default: null,
+    index: true,
+  },
+
   is_active: {
     type: Boolean,
     default: true,
