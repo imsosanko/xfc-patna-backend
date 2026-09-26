@@ -2409,7 +2409,9 @@ const broadcastToMembers = async (req, res) => {
       return res.status(400).json({ success: false, error: 'Message must be at least 5 characters' });
     }
 
-    let query = { role: 'MEMBER' };
+    // ⬇️ YAHAN CHANGE HUA — ab sabko jaayega (MEMBER + ADMIN + SUPER_ADMIN + etc.)
+    const ALL_ROLES = ['MEMBER', 'ADMIN', 'SUPER_ADMIN', 'VERIFIER', 'REPORT_ADMIN', 'SPECIAL_ADMIN'];
+    let query = { role: { $in: ALL_ROLES } };
 
     if (target === 'ACTIVE') {
       query.status = 'ACTIVE';
