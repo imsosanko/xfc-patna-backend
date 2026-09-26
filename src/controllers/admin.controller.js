@@ -20,6 +20,7 @@ const {
   formatDateIST,
   getYesterdayIST,
 } = require('../services/points.service');
+const { generateExport } = require('../services/exportHelper.service');
 
 // ═══════════════════════════════════════════
 // ADMIN LOGIN
@@ -400,7 +401,6 @@ const adjustMemberPoints = async (req, res) => {
       return res.status(404).json({ success: false, error: 'Member not found' });
     }
 
-    // ⬇️ Super Admin — koi restriction nahi
     if (req.admin.role !== 'SUPER_ADMIN') {
       if (req.admin.user_id && String(req.admin.user_id) === String(id)) {
         return res.status(403).json({
@@ -552,18 +552,15 @@ const listActivities = async (req, res) => {
     if (month) query.month = month;
     if (platform) query.platform = platform;
 
-    // Auto-verified filter
     if (auto_verified === 'true') query.auto_verified = true;
     if (auto_verified === 'false') query.auto_verified = false;
 
-    // Date range filter
     if (date_from || date_to) {
       query.date = {};
       if (date_from) query.date.$gte = date_from;
       if (date_to) query.date.$lte = date_to;
     }
 
-    // Member search
     if (search) {
       const searchRegex = { $regex: search, $options: 'i' };
 
@@ -643,7 +640,6 @@ const approveActivity = async (req, res) => {
       return res.status(404).json({ success: false, error: 'Activity not found' });
     }
 
-    // ⬇️ Super Admin — koi restriction nahi
     if (req.admin.role !== 'SUPER_ADMIN') {
       if (req.admin.user_id && String(req.admin.user_id) === String(activity.member_id)) {
         return res.status(403).json({
@@ -709,7 +705,6 @@ const rejectActivity = async (req, res) => {
       return res.status(404).json({ success: false, error: 'Activity not found' });
     }
 
-    // ⬇️ Super Admin — koi restriction nahi
     if (req.admin.role !== 'SUPER_ADMIN') {
       if (req.admin.user_id && String(req.admin.user_id) === String(activity.member_id)) {
         return res.status(403).json({
@@ -841,11 +836,10 @@ const getMonthlyReport = async (req, res) => {
       { $sort: { _id: 1 } },
     ]);
 
-    // Cumulative total members per month (registered tak us month ke end)
     const totalMembersPerMonth = await Promise.all(
       months.map(async (m) => {
         const [y, mm] = m.split('-').map(Number);
-        const endOfMonth = new Date(Date.UTC(y, mm, 1)); // next month's 1st
+        const endOfMonth = new Date(Date.UTC(y, mm, 1));
         const count = await User.countDocuments({
           role: 'MEMBER',
           createdAt: { $lt: endOfMonth },
@@ -1188,15 +1182,13 @@ const getAnalytics = async (req, res) => {
 };
 
 // ═══════════════════════════════════════════
-// EXPORT MONTHLY REPORT CSV
+// EXPORT MONTHLY REPORT
 // ═══════════════════════════════════════════
 const exportMonthlyCSV = async (req, res) => {
   try {
-    const { year, month } = req.query;
+    const { year, month, format } = req.query;
     const currentYear = year || new Date().getFullYear();
 
-    // Agar month diya (01..12) → sirf wahi month
-    // Warna poore year ke 12 months
     let months;
     if (month) {
       const mm = String(month).padStart(2, '0');
@@ -1225,34 +1217,41 @@ const exportMonthlyCSV = async (req, res) => {
       { $sort: { _id: 1 } },
     ]);
 
-    let csv = 'Month,Active Members,Total Links,Approved,Rejected,Pending\n';
-    report.forEach((r) => {
-      csv += `${r._id},${r.uniqueMembers.length},${r.totalLinks},${r.approved},${r.rejected},${r.pending}\n`;
+    const headers = ['Month', 'Active Members', 'Total Links', 'Approved', 'Rejected', 'Pending'];
+    const rows = report.map((r) => [
+      r._id,
+      r.uniqueMembers.length,
+      r.totalLinks,
+      r.approved,
+      r.rejected,
+      r.pending,
+    ]);
+
+    const { buffer, contentType, extension } = await generateExport(format, {
+      title: `Monthly Report — ${currentYear}`,
+      headers,
+      rows,
+      sheetName: 'Monthly Report',
     });
 
     const suffix = month ? `${currentYear}-${String(month).padStart(2, '0')}` : `${currentYear}`;
-    const filename = `xfc-monthly-report-${suffix}.csv`;
+    const filename = `xfc-monthly-report-${suffix}.${extension}`;
 
-    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Type', contentType);
     res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
-    res.send('\uFEFF' + csv);
+    res.send(buffer);
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
   }
 };
 
 // ═══════════════════════════════════════════
-// EXPORT: ALL MEMBERS CSV
+// EXPORT: ALL MEMBERS
 // ═══════════════════════════════════════════
 const exportMembersCSV = async (req, res) => {
   try {
-    const { status, role } = req.query;
+    const { status, role, format } = req.query;
 
-    // Role filter logic
-    // - empty / 'all'  → saare roles (members + admins)
-    // - 'MEMBER'       → sirf members
-    // - 'ADMIN'        → ADMIN + VERIFIER + REPORT_ADMIN + SPECIAL_ADMIN (not SUPER_ADMIN)
-    // - 'SUPER_ADMIN'  → sirf super admin
     const ALL_ROLES = ['MEMBER', 'ADMIN', 'SUPER_ADMIN', 'VERIFIER', 'REPORT_ADMIN', 'SPECIAL_ADMIN'];
     const ADMIN_ROLES = ['ADMIN', 'VERIFIER', 'REPORT_ADMIN', 'SPECIAL_ADMIN'];
 
@@ -1260,7 +1259,7 @@ const exportMembersCSV = async (req, res) => {
     if (role === 'MEMBER') roleQuery = { role: 'MEMBER' };
     else if (role === 'ADMIN') roleQuery = { role: { $in: ADMIN_ROLES } };
     else if (role === 'SUPER_ADMIN') roleQuery = { role: 'SUPER_ADMIN' };
-    else roleQuery = { role: { $in: ALL_ROLES } }; // default: all
+    else roleQuery = { role: { $in: ALL_ROLES } };
 
     const query = { ...roleQuery };
     if (status) query.status = status;
@@ -1268,60 +1267,53 @@ const exportMembersCSV = async (req, res) => {
     const members = await User.find(query).sort({ createdAt: -1 }).lean();
     const currentMonth = formatDateIST().substring(0, 7);
 
-    const esc = (val) => {
-      if (val === null || val === undefined) return '';
-      const str = String(val).replace(/"/g, '""');
-      return `"${str}"`;
-    };
-
-    let csv = 'Name,Role,Xiaomi ID,WhatsApp,Telegram,Instagram,Facebook,X,Current Points,Status,Joined\n';
+    const headers = ['Name', 'Role', 'Xiaomi ID', 'WhatsApp', 'Telegram', 'Instagram', 'Facebook', 'X', 'Current Points', 'Status', 'Joined'];
+    const rows = [];
 
     for (const m of members) {
       const profile = await MemberProfile.findOne({ user_id: m._id }).lean();
       const score = await MonthlyScore.findOne({ member_id: m._id, month: currentMonth }).lean();
 
-      csv += [
-        esc(profile?.full_name || m.first_name || 'Unknown'),
-        esc(m.role || 'MEMBER'),
-        esc(profile?.xiaomi_id || ''),
-        esc(profile?.whatsapp_number || ''),
-        esc(m.telegram_username ? '@' + m.telegram_username.replace('@', '') : ''),
-        esc(profile?.instagram_url || ''),
-        esc(profile?.facebook_url || ''),
-        esc(profile?.x_twitter_url || ''),
-        esc(score?.total_points || 0),
-        esc(m.status),
-        esc(new Date(m.createdAt).toLocaleDateString('en-IN')),
-      ].join(',') + '\n';
+      rows.push([
+        profile?.full_name || m.first_name || 'Unknown',
+        m.role || 'MEMBER',
+        profile?.xiaomi_id || '',
+        profile?.whatsapp_number || '',
+        m.telegram_username ? '@' + m.telegram_username.replace('@', '') : '',
+        profile?.instagram_url || '',
+        profile?.facebook_url || '',
+        profile?.x_twitter_url || '',
+        score?.total_points || 0,
+        m.status,
+        new Date(m.createdAt).toLocaleDateString('en-IN'),
+      ]);
     }
 
-    const suffix = `${role || 'all'}-${status || 'all'}`;
-    const filename = `xfc-members-${suffix}-${Date.now()}.csv`;
+    const { buffer, contentType, extension } = await generateExport(format, {
+      title: `All Members — ${role || 'All Roles'} / ${status || 'All Statuses'}`,
+      headers,
+      rows,
+      sheetName: 'Members',
+    });
 
-    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    const suffix = `${role || 'all'}-${status || 'all'}`;
+    const filename = `xfc-members-${suffix}-${Date.now()}.${extension}`;
+
+    res.setHeader('Content-Type', contentType);
     res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
-    res.send('\uFEFF' + csv);
+    res.send(buffer);
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
   }
 };
 
 // ═══════════════════════════════════════════
-// EXPORT: MEETUP ATTENDANCE CSV
+// EXPORT: MEETUP ATTENDANCE
 // ═══════════════════════════════════════════
 const exportMeetupAttendanceCSV = async (req, res) => {
   try {
-    const { meetup_id } = req.query;
+    const { meetup_id, format } = req.query;
 
-    const esc = (val) => {
-      if (val === null || val === undefined) return '';
-      const str = String(val).replace(/"/g, '""');
-      return `"${str}"`;
-    };
-
-    // ─────────────────────────────────────────
-    // CASE A: Single meetup
-    // ─────────────────────────────────────────
     if (meetup_id) {
       const meetup = await Meetup.findById(meetup_id).lean();
       if (!meetup) {
@@ -1333,56 +1325,54 @@ const exportMeetupAttendanceCSV = async (req, res) => {
         .populate('member_id', 'first_name last_name telegram_username')
         .lean();
 
-      let csv = `Meetup: ${meetup.title}\n`;
-      csv += `Date: ${new Date(meetup.date).toLocaleString('en-IN')}\n`;
-      csv += `Venue: ${meetup.venue}\n\n`;
-      csv += 'Name,Xiaomi ID,WhatsApp,Telegram,RSVP Status,Physical,X Status,Insta Status,Points Awarded\n';
+      const headers = ['Name', 'Xiaomi ID', 'WhatsApp', 'Telegram', 'RSVP Status', 'Physical', 'X Status', 'Insta Status', 'Points Awarded'];
+      const rows = [];
 
       for (const r of rsvps) {
         const profile = await MemberProfile.findOne({ user_id: r.member_id }).lean();
-        const attendance = await MeetupAttendance.findOne({
-          meetup_id,
-          member_id: r.member_id,
-        }).lean();
+        const attendance = await MeetupAttendance.findOne({ meetup_id, member_id: r.member_id }).lean();
 
-        csv += [
-          esc(profile?.full_name || r.member_id?.first_name || 'Unknown'),
-          esc(profile?.xiaomi_id || ''),
-          esc(profile?.whatsapp_number || ''),
-          esc(r.member_id?.telegram_username ? '@' + r.member_id.telegram_username.replace('@', '') : ''),
-          esc(r.rsvp_status),
-          esc(attendance?.attendance_status || 'PENDING'),
-          esc(r.x_status || 'NOT_SUBMITTED'),
-          esc(r.instagram_status || 'NOT_SUBMITTED'),
-          esc((attendance?.points_awarded || 0) + (r.points_awarded || 0)),
-        ].join(',') + '\n';
+        rows.push([
+          profile?.full_name || r.member_id?.first_name || 'Unknown',
+          profile?.xiaomi_id || '',
+          profile?.whatsapp_number || '',
+          r.member_id?.telegram_username ? '@' + r.member_id.telegram_username.replace('@', '') : '',
+          r.rsvp_status,
+          attendance?.attendance_status || 'PENDING',
+          r.x_status || 'NOT_SUBMITTED',
+          r.instagram_status || 'NOT_SUBMITTED',
+          (attendance?.points_awarded || 0) + (r.points_awarded || 0),
+        ]);
       }
 
-      const safeTitle = meetup.title.replace(/[^a-z0-9]/gi, '-').toLowerCase();
-      const filename = `xfc-meetup-${safeTitle}-${Date.now()}.csv`;
+      const { buffer, contentType, extension } = await generateExport(format, {
+        title: `Meetup Attendance — ${meetup.title}`,
+        headers,
+        rows,
+        sheetName: 'Attendance',
+      });
 
-      res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+      const safeTitle = meetup.title.replace(/[^a-z0-9]/gi, '-').toLowerCase();
+      const filename = `xfc-meetup-${safeTitle}-${Date.now()}.${extension}`;
+
+      res.setHeader('Content-Type', contentType);
       res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
-      return res.send('\uFEFF' + csv);
+      return res.send(buffer);
     }
 
-    // ─────────────────────────────────────────
-    // CASE B: All meetups (combined)
-    // ─────────────────────────────────────────
     const rsvps = await MeetupRSVP.find({})
       .sort({ meetup_id: 1, createdAt: 1 })
       .populate('member_id', 'first_name last_name telegram_username')
       .lean();
 
-    // Meetup info ek saath fetch (N+1 avoid)
     const meetupIds = [...new Set(rsvps.map((r) => String(r.meetup_id)))];
     const meetups = await Meetup.find({ _id: { $in: meetupIds } })
       .select('title date venue')
       .lean();
     const meetupMap = Object.fromEntries(meetups.map((m) => [String(m._id), m]));
 
-    let csv =
-      'Meetup,Meetup Date,Member,Xiaomi ID,WhatsApp,Telegram,RSVP Status,Physical,X Status,Insta Status,Points Awarded\n';
+    const headers = ['Meetup', 'Meetup Date', 'Member', 'Xiaomi ID', 'WhatsApp', 'Telegram', 'RSVP Status', 'Physical', 'X Status', 'Insta Status', 'Points Awarded'];
+    const rows = [];
 
     for (const r of rsvps) {
       const m = meetupMap[String(r.meetup_id)];
@@ -1392,37 +1382,44 @@ const exportMeetupAttendanceCSV = async (req, res) => {
         member_id: r.member_id,
       }).lean();
 
-      csv += [
-        esc(m?.title || 'Unknown Meetup'),
-        esc(m?.date ? new Date(m.date).toLocaleDateString('en-IN') : ''),
-        esc(profile?.full_name || r.member_id?.first_name || 'Unknown'),
-        esc(profile?.xiaomi_id || ''),
-        esc(profile?.whatsapp_number || ''),
-        esc(r.member_id?.telegram_username ? '@' + r.member_id.telegram_username.replace('@', '') : ''),
-        esc(r.rsvp_status),
-        esc(attendance?.attendance_status || 'PENDING'),
-        esc(r.x_status || 'NOT_SUBMITTED'),
-        esc(r.instagram_status || 'NOT_SUBMITTED'),
-        esc((attendance?.points_awarded || 0) + (r.points_awarded || 0)),
-      ].join(',') + '\n';
+      rows.push([
+        m?.title || 'Unknown Meetup',
+        m?.date ? new Date(m.date).toLocaleDateString('en-IN') : '',
+        profile?.full_name || r.member_id?.first_name || 'Unknown',
+        profile?.xiaomi_id || '',
+        profile?.whatsapp_number || '',
+        r.member_id?.telegram_username ? '@' + r.member_id.telegram_username.replace('@', '') : '',
+        r.rsvp_status,
+        attendance?.attendance_status || 'PENDING',
+        r.x_status || 'NOT_SUBMITTED',
+        r.instagram_status || 'NOT_SUBMITTED',
+        (attendance?.points_awarded || 0) + (r.points_awarded || 0),
+      ]);
     }
 
-    const filename = `xfc-meetup-attendance-all-${Date.now()}.csv`;
+    const { buffer, contentType, extension } = await generateExport(format, {
+      title: 'Meetup Attendance — All Meetups',
+      headers,
+      rows,
+      sheetName: 'All Attendance',
+    });
 
-    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    const filename = `xfc-meetup-attendance-all-${Date.now()}.${extension}`;
+
+    res.setHeader('Content-Type', contentType);
     res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
-    res.send('\uFEFF' + csv);
+    res.send(buffer);
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
   }
 };
 
 // ═══════════════════════════════════════════
-// EXPORT: MEMBER-WISE REPORT CSV
+// EXPORT: MEMBER-WISE REPORT
 // ═══════════════════════════════════════════
 const exportMemberWiseCSV = async (req, res) => {
   try {
-    const { month } = req.query;
+    const { month, format } = req.query;
 
     if (!month) {
       return res.status(400).json({ success: false, error: 'Month is required (YYYY-MM)' });
@@ -1467,52 +1464,48 @@ const exportMemberWiseCSV = async (req, res) => {
       { $sort: { approved: -1, totalLinks: -1 } },
     ]);
 
-    const esc = (val) => {
-      if (val === null || val === undefined) return '';
-      const str = String(val).replace(/"/g, '""');
-      return `"${str}"`;
-    };
+    const headers = ['Member', 'Telegram', 'Xiaomi ID', 'WhatsApp', 'Total Links', 'Approved', 'Rejected', 'Pending', 'Active Days'];
+    const rows = report.map((r) => [
+      r.member_name,
+      r.telegram_username ? '@' + r.telegram_username.replace('@', '') : '',
+      r.xiaomi_id,
+      r.whatsapp_number,
+      r.totalLinks,
+      r.approved,
+      r.rejected,
+      r.pending,
+      r.activeDays,
+    ]);
 
-    let csv =
-      'Member,Telegram,Xiaomi ID,WhatsApp,Total Links,Approved,Rejected,Pending,Active Days\n';
+    const { buffer, contentType, extension } = await generateExport(format, {
+      title: `Member-wise Report — ${month}`,
+      headers,
+      rows,
+      sheetName: 'Member Report',
+    });
 
-    for (const r of report) {
-      csv += [
-        esc(r.member_name),
-        esc(r.telegram_username ? '@' + r.telegram_username.replace('@', '') : ''),
-        esc(r.xiaomi_id),
-        esc(r.whatsapp_number),
-        esc(r.totalLinks),
-        esc(r.approved),
-        esc(r.rejected),
-        esc(r.pending),
-        esc(r.activeDays),
-      ].join(',') + '\n';
-    }
+    const filename = `xfc-member-wise-${month}-${Date.now()}.${extension}`;
 
-    const filename = `xfc-member-wise-${month}-${Date.now()}.csv`;
-
-    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Type', contentType);
     res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
-    res.send('\uFEFF' + csv);
+    res.send(buffer);
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
   }
 };
 
 // ═══════════════════════════════════════════
-// EXPORT: ACTIVITY LOG CSV
+// EXPORT: ACTIVITY LOG
 // ═══════════════════════════════════════════
 const exportActivityLogCSV = async (req, res) => {
   try {
-    const { month, status, platform, auto_verified } = req.query;
+    const { month, status, platform, auto_verified, format } = req.query;
 
     const query = {};
     if (month) query.month = month;
     if (status) query.status = status;
     if (platform) query.platform = platform;
 
-    // Auto-verified filter (string "true"/"false" from query)
     if (auto_verified === 'true') query.auto_verified = true;
     if (auto_verified === 'false') query.auto_verified = false;
 
@@ -1522,33 +1515,34 @@ const exportActivityLogCSV = async (req, res) => {
       .populate('member_id', 'first_name last_name telegram_username')
       .lean();
 
-    const esc = (val) => {
-      if (val === null || val === undefined) return '';
-      const str = String(val).replace(/"/g, '""');
-      return `"${str}"`;
-    };
-
-    let csv =
-      'Date,Member,Xiaomi ID,Telegram,Platform,Type,URL,Status,Auto-Verified,Points,Submitted At,Rejection Reason\n';
+    const headers = ['Date', 'Member', 'Xiaomi ID', 'Telegram', 'Platform', 'Type', 'URL', 'Status', 'Auto-Verified', 'Points', 'Submitted At', 'Rejection Reason'];
+    const rows = [];
 
     for (const a of activities) {
       const profile = await MemberProfile.findOne({ user_id: a.member_id }).lean();
 
-      csv += [
-        esc(a.date),
-        esc(profile?.full_name || a.member_id?.first_name || 'Unknown'),
-        esc(profile?.xiaomi_id || ''),
-        esc(a.member_id?.telegram_username ? '@' + a.member_id.telegram_username.replace('@', '') : ''),
-        esc(a.platform),
-        esc(a.activity_type),
-        esc(a.url),
-        esc(a.status),
-        esc(a.auto_verified ? 'YES' : 'NO'),
-        esc(a.points || 0),
-        esc(a.submitted_at ? new Date(a.submitted_at).toLocaleString('en-IN') : ''),
-        esc(a.rejection_reason || ''),
-      ].join(',') + '\n';
+      rows.push([
+        a.date,
+        profile?.full_name || a.member_id?.first_name || 'Unknown',
+        profile?.xiaomi_id || '',
+        a.member_id?.telegram_username ? '@' + a.member_id.telegram_username.replace('@', '') : '',
+        a.platform,
+        a.activity_type,
+        a.url,
+        a.status,
+        a.auto_verified ? 'YES' : 'NO',
+        a.points || 0,
+        a.submitted_at ? new Date(a.submitted_at).toLocaleString('en-IN') : '',
+        a.rejection_reason || '',
+      ]);
     }
+
+    const { buffer, contentType, extension } = await generateExport(format, {
+      title: `Activity Log — ${month || 'All Months'}`,
+      headers,
+      rows,
+      sheetName: 'Activities',
+    });
 
     const parts = [
       month || 'all',
@@ -1556,11 +1550,11 @@ const exportActivityLogCSV = async (req, res) => {
       platform || 'all',
       auto_verified === 'true' ? 'auto' : auto_verified === 'false' ? 'manual' : 'all',
     ];
-    const filename = `xfc-activities-${parts.join('-')}-${Date.now()}.csv`;
+    const filename = `xfc-activities-${parts.join('-')}-${Date.now()}.${extension}`;
 
-    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Type', contentType);
     res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
-    res.send('\uFEFF' + csv);
+    res.send(buffer);
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
   }
