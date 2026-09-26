@@ -9,8 +9,8 @@ const {
   getDashboardStats,
   listMembers,
   updateMemberStatus,
-  getMemberDetail,          // ⬅️ NEW
-  updateMemberDetail,       // ⬅️ NEW
+  getMemberDetail,
+  updateMemberDetail,
   adjustMemberPoints,
   getMemberPointsBreakdown,
   listActivities,
@@ -52,6 +52,12 @@ const {
   giveBadgeToUser,
   giveAllBadgesToUser,
   removeBadgeFromUser,
+  // ⬇️ NEW — Auto-Verification
+  getAutoVerifySettings,
+  toggleAutoVerify,
+  updateAutoVerifyTiming,
+  getAutoApprovedLog,
+  overrideAutoApproved,
 } = require('../controllers/admin.controller');
 const {
   getMe,
@@ -86,7 +92,7 @@ router.post('/members/:id/adjust-points', adminProtect, adjustMemberPoints);
 router.get('/members/:id/points-breakdown', adminProtect, getMemberPointsBreakdown);
 
 // ═══════════════════════════════════════════
-// MEMBER DETAIL (View + Edit) ⬅️ NEW
+// MEMBER DETAIL (View + Edit)
 // ═══════════════════════════════════════════
 router.get('/members/:id/detail', adminProtect, getMemberDetail);
 router.patch('/members/:id/detail', adminProtect, updateMemberDetail);
@@ -99,6 +105,15 @@ router.patch('/activities/:id/approve', adminProtect, approveActivity);
 router.patch('/activities/:id/reject', adminProtect, rejectActivity);
 router.post('/activities/bulk-approve', adminProtect, bulkApprove);
 router.post('/activities/bulk-reject', adminProtect, bulkReject);
+
+// ═══════════════════════════════════════════
+// AUTO-VERIFICATION (Super Admin only) ⬅️ NEW
+// ═══════════════════════════════════════════
+router.get('/auto-verify/settings', adminProtect, superAdminOnly, getAutoVerifySettings);
+router.post('/auto-verify/toggle', adminProtect, superAdminOnly, toggleAutoVerify);
+router.patch('/auto-verify/timing', adminProtect, superAdminOnly, updateAutoVerifyTiming);
+router.get('/auto-verify/log', adminProtect, superAdminOnly, getAutoApprovedLog);
+router.patch('/auto-verify/override/:id', adminProtect, superAdminOnly, overrideAutoApproved);
 
 // ═══════════════════════════════════════════
 // REPORTS

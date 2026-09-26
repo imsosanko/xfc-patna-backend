@@ -72,6 +72,23 @@ const ActivitySchema = new mongoose.Schema({
     type: String, 
     default: '' 
   },
+
+  // ═══════════════════════════════════════════
+  // AUTO-VERIFICATION FIELDS (NEW)
+  // ═══════════════════════════════════════════
+  auto_verified: {
+    type: Boolean,
+    default: false,
+    index: true,
+  },
+  verified_by_system: {
+    type: Boolean,
+    default: false,
+  },
+  auto_verify_reason: {
+    type: String,
+    default: '',
+  },
 }, { timestamps: true });
 
 // ⚠️ CRITICAL: Duplicate protection — ek member same URL dobara nahi de sakta

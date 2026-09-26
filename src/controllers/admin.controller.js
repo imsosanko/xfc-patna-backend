@@ -2671,6 +2671,248 @@ const removeBadgeFromUser = async (req, res) => {
 };
 
 // ═══════════════════════════════════════════
+// AUTO-VERIFICATION — ADMIN CONTROLS
+// ═══════════════════════════════════════════
+
+const getAutoVerifySettings = async (req, res) => {
+  try {
+    const autoVerifyService = require('../services/autoVerify.service');
+    const settings = await autoVerifyService.getAutoVerifySettings();
+    const patterns = autoVerifyService.getPatternsInfo();
+
+    const today = formatDateIST();
+    const currentMonth = today.substring(0, 7);
+
+    const [
+      totalAutoApproved,
+      todayAutoApproved,
+      monthAutoApproved,
+      totalPending,
+      totalManualApproved,
+    ] = await Promise.all([
+      Activity.countDocuments({ auto_verified: true }),
+      Activity.countDocuments({ auto_verified: true, date: today }),
+      Activity.countDocuments({ auto_verified: true, month: currentMonth }),
+      Activity.countDocuments({ status: 'PENDING' }),
+      Activity.countDocuments({ status: 'APPROVED', auto_verified: false }),
+    ]);
+
+    res.json({
+      success: true,
+      settings,
+      patterns,
+      stats: {
+        total_auto_approved: totalAutoApproved,
+        today_auto_approved: todayAutoApproved,
+        month_auto_approved: monthAutoApproved,
+        total_pending: totalPending,
+        total_manual_approved: totalManualApproved,
+      },
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+};
+
+const toggleAutoVerify = async (req, res) => {
+  try {
+    const { enabled } = req.body;
+
+    if (typeof enabled !== 'boolean') {
+      return res.status(400).json({
+        success: false,
+        error: 'enabled must be a boolean value',
+      });
+    }
+
+    const autoVerifyService = require('../services/autoVerify.service');
+    const TOGGLE_KEY = autoVerifyService.TOGGLE_KEY;
+
+    await SystemSetting.findOneAndUpdate(
+      { key: TOGGLE_KEY },
+      { value: enabled, updated_at: new Date() },
+      { upsert: true, new: true }
+    );
+
+    await AuditLog.create({
+      admin_id: req.admin._id,
+      action: 'TOGGLE_AUTO_VERIFY',
+      target_type: 'SYSTEM',
+      target_id: null,
+      new_value: { enabled },
+    });
+
+    res.json({
+      success: true,
+      message: `Auto-verification ${enabled ? 'ENABLED' : 'DISABLED'}`,
+      enabled,
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+};
+
+const updateAutoVerifyTiming = async (req, res) => {
+  try {
+    const { startTime, endTime } = req.body;
+    const timeRegex = /^([01]\d|2[0-3]):([0-5]\d)$/;
+
+    if (!timeRegex.test(startTime) || !timeRegex.test(endTime)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Time must be in HH:MM format (e.g., "20:00")',
+      });
+    }
+
+    const autoVerifyService = require('../services/autoVerify.service');
+    const START_TIME_KEY = autoVerifyService.START_TIME_KEY;
+    const END_TIME_KEY = autoVerifyService.END_TIME_KEY;
+
+    await Promise.all([
+      SystemSetting.findOneAndUpdate(
+        { key: START_TIME_KEY },
+        { value: startTime, updated_at: new Date() },
+        { upsert: true }
+      ),
+      SystemSetting.findOneAndUpdate(
+        { key: END_TIME_KEY },
+        { value: endTime, updated_at: new Date() },
+        { upsert: true }
+      ),
+    ]);
+
+    await AuditLog.create({
+      admin_id: req.admin._id,
+      action: 'UPDATE_AUTO_VERIFY_TIMING',
+      target_type: 'SYSTEM',
+      target_id: null,
+      new_value: { startTime, endTime },
+    });
+
+    res.json({
+      success: true,
+      message: `Timing updated: ${startTime} - ${endTime} IST`,
+      startTime,
+      endTime,
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+};
+
+const getAutoApprovedLog = async (req, res) => {
+  try {
+    const { page = 1, limit = 50, platform, status } = req.query;
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+
+    const query = { auto_verified: true };
+    if (platform) query.platform = platform;
+    if (status) query.status = status;
+
+    const [activities, total] = await Promise.all([
+      Activity.find(query)
+        .sort({ submitted_at: -1 })
+        .skip(skip)
+        .limit(parseInt(limit))
+        .populate('member_id', 'first_name last_name telegram_username profile_photo_url'),
+      Activity.countDocuments(query),
+    ]);
+
+    const enriched = await Promise.all(
+      activities.map(async (a) => {
+        const profile = await MemberProfile.findOne({ user_id: a.member_id });
+        return {
+          id: a._id,
+          activity_id: a.activity_id,
+          member_id: a.member_id?._id,
+          member_name: profile?.full_name || a.member_id?.first_name || 'Unknown',
+          xiaomi_id: profile?.xiaomi_id || 'N/A',
+          telegram_username: a.member_id?.telegram_username || '',
+          platform: a.platform,
+          activity_type: a.activity_type,
+          url: a.url,
+          status: a.status,
+          submitted_at: a.submitted_at,
+          verified_at: a.verified_at,
+          auto_verify_reason: a.auto_verify_reason,
+          points: a.points,
+          rejection_reason: a.rejection_reason || '',
+        };
+      })
+    );
+
+    res.json({
+      success: true,
+      total,
+      page: parseInt(page),
+      activities: enriched,
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+};
+
+const overrideAutoApproved = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { reason } = req.body;
+
+    if (!reason || reason.trim().length < 3) {
+      return res.status(400).json({
+        success: false,
+        error: 'Reason is required (min 3 characters)',
+      });
+    }
+
+    const activity = await Activity.findById(id);
+    if (!activity) {
+      return res.status(404).json({ success: false, error: 'Activity not found' });
+    }
+
+    if (!activity.auto_verified) {
+      return res.status(400).json({
+        success: false,
+        error: 'This activity was not auto-approved. Use regular reject flow.',
+      });
+    }
+
+    if (activity.status === 'REJECTED') {
+      return res.status(400).json({
+        success: false,
+        error: 'Activity already rejected',
+      });
+    }
+
+    activity.status = 'REJECTED';
+    activity.rejection_reason = reason.trim();
+    activity.verified_at = new Date();
+    activity.verified_by = req.admin._id;
+    activity.verified_by_system = false;
+    await activity.save();
+
+    await AuditLog.create({
+      admin_id: req.admin._id,
+      action: 'OVERRIDE_AUTO_APPROVED',
+      target_type: 'ACTIVITY',
+      target_id: activity._id,
+      new_value: {
+        member_id: activity.member_id,
+        reason: reason.trim(),
+        previous_status: 'APPROVED',
+      },
+    });
+
+    res.json({
+      success: true,
+      message: 'Auto-approved activity rejected',
+      activity_id: activity._id,
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+};
+
+// ═══════════════════════════════════════════
 // EXPORTS
 // ═══════════════════════════════════════════
 module.exports = {
@@ -2721,4 +2963,11 @@ module.exports = {
   giveBadgeToUser,
   giveAllBadgesToUser,
   removeBadgeFromUser,
+
+  // Auto-Verification
+  getAutoVerifySettings,
+  toggleAutoVerify,
+  updateAutoVerifyTiming,
+  getAutoApprovedLog,
+  overrideAutoApproved,
 };
