@@ -127,7 +127,6 @@ const listMembers = async (req, res) => {
     const { search, status, page = 1, limit = 50 } = req.query;
     const skip = (parseInt(page) - 1) * parseInt(limit);
 
-    // ⬇️ UPDATED: Include MEMBER + ADMIN + SUPER_ADMIN
     let query = {
       role: { $in: ['MEMBER', 'ADMIN', 'SUPER_ADMIN', 'VERIFIER', 'REPORT_ADMIN', 'SPECIAL_ADMIN'] },
     };
@@ -401,14 +400,15 @@ const adjustMemberPoints = async (req, res) => {
       return res.status(404).json({ success: false, error: 'Member not found' });
     }
 
-    if (req.admin.user_id && String(req.admin.user_id) === String(id)) {
-      return res.status(403).json({
-        success: false,
-        error: 'You cannot adjust your own points',
-      });
-    }
-
+    // ⬇️ Super Admin — koi restriction nahi
     if (req.admin.role !== 'SUPER_ADMIN') {
+      if (req.admin.user_id && String(req.admin.user_id) === String(id)) {
+        return res.status(403).json({
+          success: false,
+          error: 'You cannot adjust your own points',
+        });
+      }
+
       const targetAdmin = await Admin.findOne({ user_id: id }).select('name role');
       if (targetAdmin) {
         return res.status(403).json({
@@ -555,7 +555,7 @@ const listActivities = async (req, res) => {
         return {
           id: a._id,
           activity_id: a.activity_id,
-          member_user_id: a.member_id?._id?.toString() || null,  // ⬅️ NEW
+          member_user_id: a.member_id?._id?.toString() || null,
           member_name: profile?.full_name || a.member_id?.first_name || 'Unknown',
           xiaomi_id: profile?.xiaomi_id || 'N/A',
           telegram_username: a.member_id?.telegram_username || '',
@@ -590,11 +590,14 @@ const approveActivity = async (req, res) => {
       return res.status(404).json({ success: false, error: 'Activity not found' });
     }
 
-    if (req.admin.user_id && String(req.admin.user_id) === String(activity.member_id)) {
-      return res.status(403).json({
-        success: false,
-        error: 'You cannot verify your own activity',
-      });
+    // ⬇️ Super Admin — koi restriction nahi
+    if (req.admin.role !== 'SUPER_ADMIN') {
+      if (req.admin.user_id && String(req.admin.user_id) === String(activity.member_id)) {
+        return res.status(403).json({
+          success: false,
+          error: 'You cannot verify your own activity',
+        });
+      }
     }
 
     activity.status = 'APPROVED';
@@ -653,11 +656,14 @@ const rejectActivity = async (req, res) => {
       return res.status(404).json({ success: false, error: 'Activity not found' });
     }
 
-    if (req.admin.user_id && String(req.admin.user_id) === String(activity.member_id)) {
-      return res.status(403).json({
-        success: false,
-        error: 'You cannot verify your own activity',
-      });
+    // ⬇️ Super Admin — koi restriction nahi
+    if (req.admin.role !== 'SUPER_ADMIN') {
+      if (req.admin.user_id && String(req.admin.user_id) === String(activity.member_id)) {
+        return res.status(403).json({
+          success: false,
+          error: 'You cannot verify your own activity',
+        });
+      }
     }
 
     activity.status = 'REJECTED';
@@ -2672,8 +2678,8 @@ module.exports = {
   getDashboardStats,
   listMembers,
   updateMemberStatus,
-  getMemberDetail,          // ⬅️ NEW
-  updateMemberDetail,       // ⬅️ NEW
+  getMemberDetail,
+  updateMemberDetail,
   adjustMemberPoints,
   getMemberPointsBreakdown,
   listActivities,
