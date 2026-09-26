@@ -46,6 +46,7 @@ const {
   exportMembersCSV,
   exportMeetupAttendanceCSV,
   exportActivityLogCSV,
+  exportMemberWiseCSV,       // ⬅️ NAYA ADD
   // Badge Manager
   getBadgesCatalog,
   searchUsersForBadges,
@@ -107,7 +108,7 @@ router.post('/activities/bulk-approve', adminProtect, bulkApprove);
 router.post('/activities/bulk-reject', adminProtect, bulkReject);
 
 // ═══════════════════════════════════════════
-// AUTO-VERIFICATION (Super Admin only) ⬅️ NEW
+// AUTO-VERIFICATION (Super Admin only)
 // ═══════════════════════════════════════════
 router.get('/auto-verify/settings', adminProtect, superAdminOnly, getAutoVerifySettings);
 router.post('/auto-verify/toggle', adminProtect, superAdminOnly, toggleAutoVerify);
@@ -121,6 +122,7 @@ router.patch('/auto-verify/override/:id', adminProtect, superAdminOnly, override
 router.get('/reports/monthly', adminProtect, getMonthlyReport);
 router.get('/reports/member-wise', adminProtect, getMemberWiseReport);
 router.get('/reports/export', adminProtect, exportMonthlyCSV);
+router.get('/reports/member-wise/export', adminProtect, exportMemberWiseCSV);   // ⬅️ NAYA ADD
 
 // ═══════════════════════════════════════════
 // ANALYTICS

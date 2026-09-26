@@ -1,4 +1,34 @@
 require('dotenv').config();
+
+// ═══════════════════════════════════════════
+// 🔍 DEBUG: Check which admin controller loads
+// ═══════════════════════════════════════════
+const path = require('path');
+const fs = require('fs');
+try {
+  const controllerPath = path.join(__dirname, 'src', 'controllers', 'admin.controller.js');
+  if (fs.existsSync(controllerPath)) {
+    const stats = fs.statSync(controllerPath);
+    console.log('══════════════════════════════════════════');
+    console.log('🔍 ADMIN CONTROLLER FILE INFO:');
+    console.log('   Path:', controllerPath);
+    console.log('   Size:', stats.size, 'bytes');
+    console.log('   Modified:', stats.mtime.toISOString());
+    
+    // Actual file me "Name,Role,Xiaomi" hai ya nahi?
+    const content = fs.readFileSync(controllerPath, 'utf8');
+    const hasRoleColumn = content.includes('Name,Role,Xiaomi');
+    const hasRoleFilter = content.includes("role === 'ADMIN'");
+    console.log('   ✅ Has "Name,Role,Xiaomi" header:', hasRoleColumn);
+    console.log('   ✅ Has role filter logic:', hasRoleFilter);
+    console.log('══════════════════════════════════════════');
+  } else {
+    console.error('❌ admin.controller.js NOT FOUND at:', controllerPath);
+  }
+} catch (err) {
+  console.error('❌ Debug error:', err.message);
+}
+
 const app = require('./src/app');
 const connectDB = require('./src/config/db');
 const { startMidnightJob } = require('./src/jobs/midnightProcessor');
@@ -14,15 +44,13 @@ const start = async () => {
     // ═══════════════════════════════════════════
     // START CRON JOBS
     // ═══════════════════════════════════════════
-    startMidnightJob();        // 12:00 AM IST — Points processing
-    startDailyReminderJob();   // 8:00 PM IST  — Daily activity reminder
-    startStreakWarningJob();   // 9:00 PM IST  — Streak warnings + milestones
-    startMeetupReminderJob();  // 8:00 AM + every 30 min — Meetup reminders
+    startMidnightJob();
+    startDailyReminderJob();
+    startStreakWarningJob();
+    startMeetupReminderJob();
 
-    // Initialize Telegram Bot
     initBot();
 
-    // Auto-set webhook in production
     if (process.env.NODE_ENV === 'production') {
       const serverUrl = 'https://xfc-patna-backend.onrender.com';
       setTimeout(() => setWebhook(serverUrl), 5000);

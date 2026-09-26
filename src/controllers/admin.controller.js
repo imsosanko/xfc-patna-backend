@@ -533,12 +533,63 @@ const getMemberPointsBreakdown = async (req, res) => {
 // ═══════════════════════════════════════════
 const listActivities = async (req, res) => {
   try {
-    const { status, month, page = 1, limit = 50 } = req.query;
+    const {
+      status,
+      month,
+      page = 1,
+      limit = 50,
+      platform,
+      auto_verified,
+      date_from,
+      date_to,
+      search,
+    } = req.query;
+
     const skip = (parseInt(page) - 1) * parseInt(limit);
 
     const query = {};
     if (status) query.status = status;
     if (month) query.month = month;
+    if (platform) query.platform = platform;
+
+    // Auto-verified filter
+    if (auto_verified === 'true') query.auto_verified = true;
+    if (auto_verified === 'false') query.auto_verified = false;
+
+    // Date range filter
+    if (date_from || date_to) {
+      query.date = {};
+      if (date_from) query.date.$gte = date_from;
+      if (date_to) query.date.$lte = date_to;
+    }
+
+    // Member search
+    if (search) {
+      const searchRegex = { $regex: search, $options: 'i' };
+
+      const profiles = await MemberProfile.find({
+        $or: [
+          { full_name: searchRegex },
+          { xiaomi_id: searchRegex },
+          { telegram_username: searchRegex },
+        ],
+      }).select('user_id');
+
+      const users = await User.find({
+        $or: [
+          { first_name: searchRegex },
+          { last_name: searchRegex },
+          { telegram_username: searchRegex },
+        ],
+      }).select('_id');
+
+      const memberIds = [
+        ...profiles.map((p) => p.user_id),
+        ...users.map((u) => u._id),
+      ];
+
+      query.member_id = { $in: memberIds };
+    }
 
     const [activities, total] = await Promise.all([
       Activity.find(query)
@@ -569,6 +620,8 @@ const listActivities = async (req, res) => {
           verified_at: a.verified_at,
           points: a.points,
           rejection_reason: a.rejection_reason,
+          auto_verified: a.auto_verified || false,
+          auto_verify_reason: a.auto_verify_reason || '',
         };
       })
     );
@@ -767,16 +820,13 @@ const bulkReject = async (req, res) => {
 const getMonthlyReport = async (req, res) => {
   try {
     const { year } = req.query;
-    const currentYear = year || new Date().getFullYear();
+    const currentYear = parseInt(year) || new Date().getFullYear();
 
-    const months = [
-      `${currentYear}-01`, `${currentYear}-02`, `${currentYear}-03`,
-      `${currentYear}-04`, `${currentYear}-05`, `${currentYear}-06`,
-      `${currentYear}-07`, `${currentYear}-08`, `${currentYear}-09`,
-      `${currentYear}-10`, `${currentYear}-11`, `${currentYear}-12`,
-    ];
+    const months = Array.from({ length: 12 }, (_, i) =>
+      `${currentYear}-${String(i + 1).padStart(2, '0')}`
+    );
 
-    const report = await Activity.aggregate([
+    const activityReport = await Activity.aggregate([
       { $match: { month: { $in: months } } },
       {
         $group: {
@@ -789,20 +839,39 @@ const getMonthlyReport = async (req, res) => {
         },
       },
       { $sort: { _id: 1 } },
-      {
-        $project: {
-          month: '$_id',
-          _id: 0,
-          totalLinks: 1,
-          approved: 1,
-          rejected: 1,
-          pending: 1,
-          activeMembers: { $size: '$uniqueMembers' },
-        },
-      },
     ]);
 
-    const filteredReport = report.filter((r) => r.totalLinks > 0);
+    // Cumulative total members per month (registered tak us month ke end)
+    const totalMembersPerMonth = await Promise.all(
+      months.map(async (m) => {
+        const [y, mm] = m.split('-').map(Number);
+        const endOfMonth = new Date(Date.UTC(y, mm, 1)); // next month's 1st
+        const count = await User.countDocuments({
+          role: 'MEMBER',
+          createdAt: { $lt: endOfMonth },
+        });
+        return { month: m, count };
+      })
+    );
+
+    const memberCountMap = Object.fromEntries(
+      totalMembersPerMonth.map((x) => [x.month, x.count])
+    );
+
+    const report = months.map((m) => {
+      const found = activityReport.find((a) => a._id === m);
+      return {
+        month: m,
+        totalMembers: memberCountMap[m] || 0,
+        activeMembers: found ? found.uniqueMembers.length : 0,
+        totalLinks: found?.totalLinks || 0,
+        approved: found?.approved || 0,
+        rejected: found?.rejected || 0,
+        pending: found?.pending || 0,
+      };
+    });
+
+    const filteredReport = report.filter((r) => r.totalLinks > 0 || r.totalMembers > 0);
 
     res.json({ success: true, year: currentYear, report: filteredReport });
   } catch (error) {
@@ -1123,15 +1192,23 @@ const getAnalytics = async (req, res) => {
 // ═══════════════════════════════════════════
 const exportMonthlyCSV = async (req, res) => {
   try {
-    const { year } = req.query;
+    const { year, month } = req.query;
     const currentYear = year || new Date().getFullYear();
 
-    const months = [
-      `${currentYear}-01`, `${currentYear}-02`, `${currentYear}-03`,
-      `${currentYear}-04`, `${currentYear}-05`, `${currentYear}-06`,
-      `${currentYear}-07`, `${currentYear}-08`, `${currentYear}-09`,
-      `${currentYear}-10`, `${currentYear}-11`, `${currentYear}-12`,
-    ];
+    // Agar month diya (01..12) → sirf wahi month
+    // Warna poore year ke 12 months
+    let months;
+    if (month) {
+      const mm = String(month).padStart(2, '0');
+      if (!/^(0[1-9]|1[0-2])$/.test(mm)) {
+        return res.status(400).json({ success: false, error: 'Invalid month (01-12)' });
+      }
+      months = [`${currentYear}-${mm}`];
+    } else {
+      months = Array.from({ length: 12 }, (_, i) =>
+        `${currentYear}-${String(i + 1).padStart(2, '0')}`
+      );
+    }
 
     const report = await Activity.aggregate([
       { $match: { month: { $in: months } } },
@@ -1153,8 +1230,11 @@ const exportMonthlyCSV = async (req, res) => {
       csv += `${r._id},${r.uniqueMembers.length},${r.totalLinks},${r.approved},${r.rejected},${r.pending}\n`;
     });
 
+    const suffix = month ? `${currentYear}-${String(month).padStart(2, '0')}` : `${currentYear}`;
+    const filename = `xfc-monthly-report-${suffix}.csv`;
+
     res.setHeader('Content-Type', 'text/csv; charset=utf-8');
-    res.setHeader('Content-Disposition', `attachment; filename="xfc-monthly-report-${currentYear}.csv"`);
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
     res.send('\uFEFF' + csv);
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
@@ -1166,9 +1246,23 @@ const exportMonthlyCSV = async (req, res) => {
 // ═══════════════════════════════════════════
 const exportMembersCSV = async (req, res) => {
   try {
-    const { status } = req.query;
+    const { status, role } = req.query;
 
-    const query = { role: 'MEMBER' };
+    // Role filter logic
+    // - empty / 'all'  → saare roles (members + admins)
+    // - 'MEMBER'       → sirf members
+    // - 'ADMIN'        → ADMIN + VERIFIER + REPORT_ADMIN + SPECIAL_ADMIN (not SUPER_ADMIN)
+    // - 'SUPER_ADMIN'  → sirf super admin
+    const ALL_ROLES = ['MEMBER', 'ADMIN', 'SUPER_ADMIN', 'VERIFIER', 'REPORT_ADMIN', 'SPECIAL_ADMIN'];
+    const ADMIN_ROLES = ['ADMIN', 'VERIFIER', 'REPORT_ADMIN', 'SPECIAL_ADMIN'];
+
+    let roleQuery;
+    if (role === 'MEMBER') roleQuery = { role: 'MEMBER' };
+    else if (role === 'ADMIN') roleQuery = { role: { $in: ADMIN_ROLES } };
+    else if (role === 'SUPER_ADMIN') roleQuery = { role: 'SUPER_ADMIN' };
+    else roleQuery = { role: { $in: ALL_ROLES } }; // default: all
+
+    const query = { ...roleQuery };
     if (status) query.status = status;
 
     const members = await User.find(query).sort({ createdAt: -1 }).lean();
@@ -1180,7 +1274,7 @@ const exportMembersCSV = async (req, res) => {
       return `"${str}"`;
     };
 
-    let csv = 'Name,Xiaomi ID,WhatsApp,Telegram,Instagram,Facebook,X,Current Points,Status,Joined\n';
+    let csv = 'Name,Role,Xiaomi ID,WhatsApp,Telegram,Instagram,Facebook,X,Current Points,Status,Joined\n';
 
     for (const m of members) {
       const profile = await MemberProfile.findOne({ user_id: m._id }).lean();
@@ -1188,6 +1282,7 @@ const exportMembersCSV = async (req, res) => {
 
       csv += [
         esc(profile?.full_name || m.first_name || 'Unknown'),
+        esc(m.role || 'MEMBER'),
         esc(profile?.xiaomi_id || ''),
         esc(profile?.whatsapp_number || ''),
         esc(m.telegram_username ? '@' + m.telegram_username.replace('@', '') : ''),
@@ -1200,7 +1295,8 @@ const exportMembersCSV = async (req, res) => {
       ].join(',') + '\n';
     }
 
-    const filename = `xfc-members-${status || 'all'}-${Date.now()}.csv`;
+    const suffix = `${role || 'all'}-${status || 'all'}`;
+    const filename = `xfc-members-${suffix}-${Date.now()}.csv`;
 
     res.setHeader('Content-Type', 'text/csv; charset=utf-8');
     res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
@@ -1217,36 +1313,88 @@ const exportMeetupAttendanceCSV = async (req, res) => {
   try {
     const { meetup_id } = req.query;
 
-    if (!meetup_id) {
-      return res.status(400).json({ success: false, error: 'meetup_id is required' });
-    }
-
-    const meetup = await Meetup.findById(meetup_id).lean();
-    if (!meetup) {
-      return res.status(404).json({ success: false, error: 'Meetup not found' });
-    }
-
-    const rsvps = await MeetupRSVP.find({ meetup_id })
-      .sort({ rsvp_status: 1, createdAt: 1 })
-      .populate('member_id', 'first_name last_name telegram_username')
-      .lean();
-
     const esc = (val) => {
       if (val === null || val === undefined) return '';
       const str = String(val).replace(/"/g, '""');
       return `"${str}"`;
     };
 
-    let csv = `Meetup: ${meetup.title}\n`;
-    csv += `Date: ${new Date(meetup.date).toLocaleString('en-IN')}\n`;
-    csv += `Venue: ${meetup.venue}\n\n`;
-    csv += 'Name,Xiaomi ID,WhatsApp,Telegram,RSVP Status,Physical,X Status,Insta Status,Points Awarded\n';
+    // ─────────────────────────────────────────
+    // CASE A: Single meetup
+    // ─────────────────────────────────────────
+    if (meetup_id) {
+      const meetup = await Meetup.findById(meetup_id).lean();
+      if (!meetup) {
+        return res.status(404).json({ success: false, error: 'Meetup not found' });
+      }
+
+      const rsvps = await MeetupRSVP.find({ meetup_id })
+        .sort({ rsvp_status: 1, createdAt: 1 })
+        .populate('member_id', 'first_name last_name telegram_username')
+        .lean();
+
+      let csv = `Meetup: ${meetup.title}\n`;
+      csv += `Date: ${new Date(meetup.date).toLocaleString('en-IN')}\n`;
+      csv += `Venue: ${meetup.venue}\n\n`;
+      csv += 'Name,Xiaomi ID,WhatsApp,Telegram,RSVP Status,Physical,X Status,Insta Status,Points Awarded\n';
+
+      for (const r of rsvps) {
+        const profile = await MemberProfile.findOne({ user_id: r.member_id }).lean();
+        const attendance = await MeetupAttendance.findOne({
+          meetup_id,
+          member_id: r.member_id,
+        }).lean();
+
+        csv += [
+          esc(profile?.full_name || r.member_id?.first_name || 'Unknown'),
+          esc(profile?.xiaomi_id || ''),
+          esc(profile?.whatsapp_number || ''),
+          esc(r.member_id?.telegram_username ? '@' + r.member_id.telegram_username.replace('@', '') : ''),
+          esc(r.rsvp_status),
+          esc(attendance?.attendance_status || 'PENDING'),
+          esc(r.x_status || 'NOT_SUBMITTED'),
+          esc(r.instagram_status || 'NOT_SUBMITTED'),
+          esc((attendance?.points_awarded || 0) + (r.points_awarded || 0)),
+        ].join(',') + '\n';
+      }
+
+      const safeTitle = meetup.title.replace(/[^a-z0-9]/gi, '-').toLowerCase();
+      const filename = `xfc-meetup-${safeTitle}-${Date.now()}.csv`;
+
+      res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+      res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+      return res.send('\uFEFF' + csv);
+    }
+
+    // ─────────────────────────────────────────
+    // CASE B: All meetups (combined)
+    // ─────────────────────────────────────────
+    const rsvps = await MeetupRSVP.find({})
+      .sort({ meetup_id: 1, createdAt: 1 })
+      .populate('member_id', 'first_name last_name telegram_username')
+      .lean();
+
+    // Meetup info ek saath fetch (N+1 avoid)
+    const meetupIds = [...new Set(rsvps.map((r) => String(r.meetup_id)))];
+    const meetups = await Meetup.find({ _id: { $in: meetupIds } })
+      .select('title date venue')
+      .lean();
+    const meetupMap = Object.fromEntries(meetups.map((m) => [String(m._id), m]));
+
+    let csv =
+      'Meetup,Meetup Date,Member,Xiaomi ID,WhatsApp,Telegram,RSVP Status,Physical,X Status,Insta Status,Points Awarded\n';
 
     for (const r of rsvps) {
+      const m = meetupMap[String(r.meetup_id)];
       const profile = await MemberProfile.findOne({ user_id: r.member_id }).lean();
-      const attendance = await MeetupAttendance.findOne({ meetup_id, member_id: r.member_id }).lean();
+      const attendance = await MeetupAttendance.findOne({
+        meetup_id: r.meetup_id,
+        member_id: r.member_id,
+      }).lean();
 
       csv += [
+        esc(m?.title || 'Unknown Meetup'),
+        esc(m?.date ? new Date(m.date).toLocaleDateString('en-IN') : ''),
         esc(profile?.full_name || r.member_id?.first_name || 'Unknown'),
         esc(profile?.xiaomi_id || ''),
         esc(profile?.whatsapp_number || ''),
@@ -1259,8 +1407,90 @@ const exportMeetupAttendanceCSV = async (req, res) => {
       ].join(',') + '\n';
     }
 
-    const safeTitle = meetup.title.replace(/[^a-z0-9]/gi, '-').toLowerCase();
-    const filename = `xfc-meetup-${safeTitle}-${Date.now()}.csv`;
+    const filename = `xfc-meetup-attendance-all-${Date.now()}.csv`;
+
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.send('\uFEFF' + csv);
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+};
+
+// ═══════════════════════════════════════════
+// EXPORT: MEMBER-WISE REPORT CSV
+// ═══════════════════════════════════════════
+const exportMemberWiseCSV = async (req, res) => {
+  try {
+    const { month } = req.query;
+
+    if (!month) {
+      return res.status(400).json({ success: false, error: 'Month is required (YYYY-MM)' });
+    }
+
+    const report = await Activity.aggregate([
+      { $match: { month } },
+      {
+        $group: {
+          _id: '$member_id',
+          totalLinks: { $sum: 1 },
+          approved: { $sum: { $cond: [{ $eq: ['$status', 'APPROVED'] }, 1, 0] } },
+          rejected: { $sum: { $cond: [{ $eq: ['$status', 'REJECTED'] }, 1, 0] } },
+          pending: { $sum: { $cond: [{ $eq: ['$status', 'PENDING'] }, 1, 0] } },
+          activeDays: { $addToSet: '$date' },
+        },
+      },
+      {
+        $lookup: {
+          from: 'memberprofiles',
+          localField: '_id',
+          foreignField: 'user_id',
+          as: 'profile',
+        },
+      },
+      { $unwind: { path: '$profile', preserveNullAndEmptyArrays: true } },
+      {
+        $project: {
+          member_id: '$_id',
+          _id: 0,
+          member_name: { $ifNull: ['$profile.full_name', 'Unknown'] },
+          xiaomi_id: { $ifNull: ['$profile.xiaomi_id', 'N/A'] },
+          whatsapp_number: { $ifNull: ['$profile.whatsapp_number', ''] },
+          telegram_username: { $ifNull: ['$profile.telegram_username', ''] },
+          totalLinks: 1,
+          approved: 1,
+          rejected: 1,
+          pending: 1,
+          activeDays: { $size: '$activeDays' },
+        },
+      },
+      { $sort: { approved: -1, totalLinks: -1 } },
+    ]);
+
+    const esc = (val) => {
+      if (val === null || val === undefined) return '';
+      const str = String(val).replace(/"/g, '""');
+      return `"${str}"`;
+    };
+
+    let csv =
+      'Member,Telegram,Xiaomi ID,WhatsApp,Total Links,Approved,Rejected,Pending,Active Days\n';
+
+    for (const r of report) {
+      csv += [
+        esc(r.member_name),
+        esc(r.telegram_username ? '@' + r.telegram_username.replace('@', '') : ''),
+        esc(r.xiaomi_id),
+        esc(r.whatsapp_number),
+        esc(r.totalLinks),
+        esc(r.approved),
+        esc(r.rejected),
+        esc(r.pending),
+        esc(r.activeDays),
+      ].join(',') + '\n';
+    }
+
+    const filename = `xfc-member-wise-${month}-${Date.now()}.csv`;
 
     res.setHeader('Content-Type', 'text/csv; charset=utf-8');
     res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
@@ -1275,11 +1505,16 @@ const exportMeetupAttendanceCSV = async (req, res) => {
 // ═══════════════════════════════════════════
 const exportActivityLogCSV = async (req, res) => {
   try {
-    const { month, status } = req.query;
+    const { month, status, platform, auto_verified } = req.query;
 
     const query = {};
     if (month) query.month = month;
     if (status) query.status = status;
+    if (platform) query.platform = platform;
+
+    // Auto-verified filter (string "true"/"false" from query)
+    if (auto_verified === 'true') query.auto_verified = true;
+    if (auto_verified === 'false') query.auto_verified = false;
 
     const activities = await Activity.find(query)
       .sort({ submitted_at: -1 })
@@ -1293,7 +1528,8 @@ const exportActivityLogCSV = async (req, res) => {
       return `"${str}"`;
     };
 
-    let csv = 'Date,Member,Xiaomi ID,Telegram,Platform,Type,URL,Status,Points,Submitted At,Rejection Reason\n';
+    let csv =
+      'Date,Member,Xiaomi ID,Telegram,Platform,Type,URL,Status,Auto-Verified,Points,Submitted At,Rejection Reason\n';
 
     for (const a of activities) {
       const profile = await MemberProfile.findOne({ user_id: a.member_id }).lean();
@@ -1307,13 +1543,20 @@ const exportActivityLogCSV = async (req, res) => {
         esc(a.activity_type),
         esc(a.url),
         esc(a.status),
+        esc(a.auto_verified ? 'YES' : 'NO'),
         esc(a.points || 0),
         esc(a.submitted_at ? new Date(a.submitted_at).toLocaleString('en-IN') : ''),
         esc(a.rejection_reason || ''),
       ].join(',') + '\n';
     }
 
-    const filename = `xfc-activities-${month || 'all'}-${status || 'all'}-${Date.now()}.csv`;
+    const parts = [
+      month || 'all',
+      status || 'all',
+      platform || 'all',
+      auto_verified === 'true' ? 'auto' : auto_verified === 'false' ? 'manual' : 'all',
+    ];
+    const filename = `xfc-activities-${parts.join('-')}-${Date.now()}.csv`;
 
     res.setHeader('Content-Type', 'text/csv; charset=utf-8');
     res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
@@ -2957,6 +3200,7 @@ module.exports = {
   exportMembersCSV,
   exportMeetupAttendanceCSV,
   exportActivityLogCSV,
+  exportMemberWiseCSV,
 
   getBadgesCatalog,
   searchUsersForBadges,
