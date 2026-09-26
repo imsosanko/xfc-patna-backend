@@ -1,5 +1,6 @@
 const User = require('../models/User');
 const MonthlyScore = require('../models/MonthlyScore');
+const { getUserProfilePhoto } = require('../services/telegramBot.service');
 
 // Helper: Full name banao
 const getFullName = (user) => {
@@ -51,7 +52,6 @@ exports.getLeaderboard = async (req, res) => {
     const leaderboard = scores.map((score, index) => {
       const user = score.member_id;
 
-      // Top 3 streak badges
       const userBadges = (user?.badges || [])
         .sort((a, b) => (b.streak_days || 0) - (a.streak_days || 0))
         .slice(0, 3)
@@ -61,7 +61,6 @@ exports.getLeaderboard = async (req, res) => {
           title: b.title,
         }));
 
-      // Top 3 admin badges
       const userAdminBadges = (user?.admin_badges || [])
         .slice(0, 3)
         .map((b) => ({
@@ -110,7 +109,6 @@ exports.getStreakLeaderboard = async (req, res) => {
       .map((score, index) => {
         const user = score.member_id;
 
-        // Top 3 streak badges
         const userBadges = (user.badges || [])
           .sort((a, b) => (b.streak_days || 0) - (a.streak_days || 0))
           .slice(0, 3)
@@ -120,7 +118,6 @@ exports.getStreakLeaderboard = async (req, res) => {
             title: b.title,
           }));
 
-        // Top 3 admin badges
         const userAdminBadges = (user.admin_badges || [])
           .slice(0, 3)
           .map((b) => ({
@@ -147,5 +144,52 @@ exports.getStreakLeaderboard = async (req, res) => {
     res.json(leaderboard);
   } catch (error) {
     res.status(500).json({ message: error.message });
+  }
+};
+
+// ═══════════════════════════════════════════
+// REFRESH MY PROFILE PHOTO ⬅️ NEW
+// ═══════════════════════════════════════════
+exports.refreshMyPhoto = async (req, res) => {
+  try {
+    const user = await User.findById(req.user._id);
+
+    if (!user) {
+      return res.status(404).json({ success: false, error: 'User not found' });
+    }
+
+    if (!user.telegram_id) {
+      return res.status(400).json({ success: false, error: 'No telegram ID' });
+    }
+
+    const freshUrl = await getUserProfilePhoto(user.telegram_id);
+
+    if (freshUrl && freshUrl !== user.profile_photo_url) {
+      user.profile_photo_url = freshUrl;
+      await user.save();
+      return res.json({
+        success: true,
+        updated: true,
+        profile_photo_url: freshUrl,
+      });
+    }
+
+    if (!freshUrl && user.profile_photo_url) {
+      user.profile_photo_url = '';
+      await user.save();
+      return res.json({
+        success: true,
+        updated: true,
+        profile_photo_url: '',
+      });
+    }
+
+    res.json({
+      success: true,
+      updated: false,
+      profile_photo_url: user.profile_photo_url,
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
   }
 };

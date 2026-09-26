@@ -9,13 +9,12 @@ const MINI_APP_URL = process.env.MINI_APP_URL || 'https://xfc-patna.vercel.app';
 const XFC_GROUP_URL = process.env.XFC_GROUP_URL || 'https://t.me/XFCPatna';
 const XIAOMI_CIRCLE_URL = process.env.XIAOMI_CIRCLE_URL || 'https://t.me/XiaomiCircle';
 
-// Direct Telegram API base URL — bypasses library bug for sending
 const TELEGRAM_API = `https://api.telegram.org/bot${BOT_TOKEN}`;
 
 let bot = null;
 
 // ═══════════════════════════════════════════
-// INITIALIZE BOT (only for receiving webhooks)
+// INITIALIZE BOT
 // ═══════════════════════════════════════════
 const initBot = () => {
   if (!BOT_TOKEN) {
@@ -230,7 +229,7 @@ const getBot = () => {
 };
 
 // ═══════════════════════════════════════════
-// SET WEBHOOK — DIRECT TELEGRAM API
+// SET WEBHOOK
 // ═══════════════════════════════════════════
 const setWebhook = async (webhookUrl) => {
   if (!BOT_TOKEN) {
@@ -259,7 +258,7 @@ const setWebhook = async (webhookUrl) => {
 };
 
 // ═══════════════════════════════════════════
-// HANDLE UPDATE (receive from webhook)
+// HANDLE UPDATE
 // ═══════════════════════════════════════════
 const handleUpdate = async (update) => {
   const botInstance = getBot();
@@ -273,8 +272,7 @@ const handleUpdate = async (update) => {
 };
 
 // ═══════════════════════════════════════════
-// SEND MESSAGE TO USER (DM) — DIRECT TELEGRAM API
-// Bypasses node-telegram-bot-api bug (s.addEventListener)
+// SEND MESSAGE TO USER
 // ═══════════════════════════════════════════
 const sendMessageToUser = async (telegramId, text, options = {}) => {
   if (!BOT_TOKEN) {
@@ -310,9 +308,6 @@ const sendMessageToUser = async (telegramId, text, options = {}) => {
       error: response.data?.description || 'Unknown Telegram error',
     };
   } catch (error) {
-    // Common errors:
-    // 403 — user blocked bot / never started
-    // 400 — chat not found
     const errorMsg =
       error.response?.data?.description || error.message || 'Unknown error';
     console.error(`❌ DM failed to ${telegramId}:`, errorMsg);
@@ -350,6 +345,41 @@ const sendBulkMessages = async (messages, delayMs = 50) => {
   return results;
 };
 
+// ═══════════════════════════════════════════
+// FETCH USER PROFILE PHOTO ⬅️ NEW
+// ═══════════════════════════════════════════
+const getUserProfilePhoto = async (telegramId) => {
+  if (!BOT_TOKEN || !telegramId) return null;
+
+  try {
+    const photosRes = await axios.get(`${TELEGRAM_API}/getUserProfilePhotos`, {
+      params: { user_id: telegramId, limit: 1 },
+      timeout: 8000,
+    });
+
+    if (!photosRes.data?.ok) return null;
+
+    const result = photosRes.data.result;
+    if (!result?.total_count || !result.photos?.length) {
+      return null;
+    }
+
+    const photo = result.photos[0];
+    const fileId = photo[photo.length - 1].file_id;
+
+    const fileRes = await axios.get(`${TELEGRAM_API}/getFile`, {
+      params: { file_id: fileId },
+      timeout: 8000,
+    });
+
+    if (!fileRes.data?.ok) return null;
+
+    return `https://api.telegram.org/file/bot${BOT_TOKEN}/${fileRes.data.result.file_path}`;
+  } catch (err) {
+    return null;
+  }
+};
+
 module.exports = {
   initBot,
   getBot,
@@ -357,4 +387,5 @@ module.exports = {
   setWebhook,
   sendMessageToUser,
   sendBulkMessages,
+  getUserProfilePhoto,
 };
