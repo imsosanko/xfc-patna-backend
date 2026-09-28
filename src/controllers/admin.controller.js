@@ -133,7 +133,6 @@ const listMembers = async (req, res) => {
     };
     if (status) query.status = status;
 
-    let memberIds = null;
     if (search) {
       const profiles = await MemberProfile.find({
         $or: [
@@ -143,7 +142,7 @@ const listMembers = async (req, res) => {
           { telegram_username: { $regex: search, $options: 'i' } },
         ],
       }).select('user_id');
-      memberIds = profiles.map((p) => p.user_id);
+      const memberIds = profiles.map((p) => p.user_id);
       query._id = { $in: memberIds };
     }
 
@@ -293,7 +292,6 @@ const getMemberDetail = async (req, res) => {
 
 // ═══════════════════════════════════════════
 // UPDATE MEMBER DETAIL
-// Super Admin OR admin with 'members.edit' permission
 // ═══════════════════════════════════════════
 const updateMemberDetail = async (req, res) => {
   try {
@@ -929,7 +927,7 @@ const getMemberWiseReport = async (req, res) => {
 };
 
 // ═══════════════════════════════════════════
-// ANALYTICS (Enhanced)
+// ANALYTICS
 // ═══════════════════════════════════════════
 const getAnalytics = async (req, res) => {
   try {
@@ -2409,7 +2407,6 @@ const broadcastToMembers = async (req, res) => {
       return res.status(400).json({ success: false, error: 'Message must be at least 5 characters' });
     }
 
-    // ⬇️ YAHAN CHANGE HUA — ab sabko jaayega (MEMBER + ADMIN + SUPER_ADMIN + etc.)
     const ALL_ROLES = ['MEMBER', 'ADMIN', 'SUPER_ADMIN', 'VERIFIER', 'REPORT_ADMIN', 'SPECIAL_ADMIN'];
     let query = { role: { $in: ALL_ROLES } };
 
@@ -3152,46 +3149,69 @@ const overrideAutoApproved = async (req, res) => {
 };
 
 // ═══════════════════════════════════════════
+// HELPER: Get date range for leaderboard
+// ═══════════════════════════════════════════
+const getDateRangeForLeaderboard = async (range, from, to) => {
+  const now = new Date();
+  let startDate, endDate;
+
+  if (range === 'month') {
+    startDate = new Date(now.getFullYear(), now.getMonth(), 1);
+    endDate = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+  } else if (range === 'quarter') {
+    startDate = new Date(now.getFullYear(), now.getMonth() - 2, 1);
+    endDate = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+  } else if (range === '6months') {
+    startDate = new Date(now.getFullYear(), now.getMonth() - 5, 1);
+    endDate = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+  } else if (range === 'year') {
+    startDate = new Date(now.getFullYear(), 0, 1);
+    endDate = new Date(now.getFullYear() + 1, 0, 1);
+  } else if (range === 'all') {
+    // ✅ FIX: Pehli activity ka month dhundo, 2020 nahi
+    const firstActivity = await Activity.findOne()
+      .sort({ submitted_at: 1 })
+      .select('month')
+      .lean();
+
+    if (firstActivity?.month) {
+      const [y, m] = firstActivity.month.split('-').map(Number);
+      startDate = new Date(y, m - 1, 1);
+    } else {
+      startDate = new Date(now.getFullYear(), now.getMonth(), 1);
+    }
+    endDate = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+  } else if (range === 'manual' && from && to) {
+    startDate = new Date(from);
+    endDate = new Date(to);
+    endDate.setMonth(endDate.getMonth() + 1);
+  } else {
+    startDate = new Date(now.getFullYear(), now.getMonth(), 1);
+    endDate = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+  }
+
+  return { startDate, endDate };
+};
+
+const buildMonthsList = (startDate, endDate) => {
+  const months = [];
+  const cursor = new Date(startDate.getFullYear(), startDate.getMonth(), 1);
+  while (cursor < endDate) {
+    months.push(`${cursor.getFullYear()}-${String(cursor.getMonth() + 1).padStart(2, '0')}`);
+    cursor.setMonth(cursor.getMonth() + 1);
+  }
+  return months;
+};
+
+// ═══════════════════════════════════════════
 // ADMIN LEADERBOARD (Time Range Filters)
 // ═══════════════════════════════════════════
 const getAdminLeaderboard = async (req, res) => {
   try {
     const { range = 'month', from, to } = req.query;
-    const now = new Date();
 
-    let startDate, endDate;
-
-    if (range === 'month') {
-      startDate = new Date(now.getFullYear(), now.getMonth(), 1);
-      endDate = new Date(now.getFullYear(), now.getMonth() + 1, 1);
-    } else if (range === 'quarter') {
-      startDate = new Date(now.getFullYear(), now.getMonth() - 2, 1);
-      endDate = new Date(now.getFullYear(), now.getMonth() + 1, 1);
-    } else if (range === '6months') {
-      startDate = new Date(now.getFullYear(), now.getMonth() - 5, 1);
-      endDate = new Date(now.getFullYear(), now.getMonth() + 1, 1);
-    } else if (range === 'year') {
-      startDate = new Date(now.getFullYear(), 0, 1);
-      endDate = new Date(now.getFullYear() + 1, 0, 1);
-    } else if (range === 'all') {
-      startDate = new Date(2020, 0, 1);
-      endDate = new Date(now.getFullYear() + 1, 0, 1);
-    } else if (range === 'manual' && from && to) {
-      startDate = new Date(from);
-      endDate = new Date(to);
-      endDate.setMonth(endDate.getMonth() + 1);
-    } else {
-      startDate = new Date(now.getFullYear(), now.getMonth(), 1);
-      endDate = new Date(now.getFullYear(), now.getMonth() + 1, 1);
-    }
-
-    // Build month list in range
-    const months = [];
-    const cursor = new Date(startDate.getFullYear(), startDate.getMonth(), 1);
-    while (cursor < endDate) {
-      months.push(`${cursor.getFullYear()}-${String(cursor.getMonth() + 1).padStart(2, '0')}`);
-      cursor.setMonth(cursor.getMonth() + 1);
-    }
+    const { startDate, endDate } = await getDateRangeForLeaderboard(range, from, to);
+    const months = buildMonthsList(startDate, endDate);
 
     const scores = await MonthlyScore.aggregate([
       { $match: { month: { $in: months } } },
@@ -3465,40 +3485,9 @@ const exportMemberActivities = async (req, res) => {
 const exportLeaderboard = async (req, res) => {
   try {
     const { range = 'month', from, to, format } = req.query;
-    const now = new Date();
 
-    let startDate, endDate;
-
-    if (range === 'month') {
-      startDate = new Date(now.getFullYear(), now.getMonth(), 1);
-      endDate = new Date(now.getFullYear(), now.getMonth() + 1, 1);
-    } else if (range === 'quarter') {
-      startDate = new Date(now.getFullYear(), now.getMonth() - 2, 1);
-      endDate = new Date(now.getFullYear(), now.getMonth() + 1, 1);
-    } else if (range === '6months') {
-      startDate = new Date(now.getFullYear(), now.getMonth() - 5, 1);
-      endDate = new Date(now.getFullYear(), now.getMonth() + 1, 1);
-    } else if (range === 'year') {
-      startDate = new Date(now.getFullYear(), 0, 1);
-      endDate = new Date(now.getFullYear() + 1, 0, 1);
-    } else if (range === 'all') {
-      startDate = new Date(2020, 0, 1);
-      endDate = new Date(now.getFullYear() + 1, 0, 1);
-    } else if (range === 'manual' && from && to) {
-      startDate = new Date(from);
-      endDate = new Date(to);
-      endDate.setMonth(endDate.getMonth() + 1);
-    } else {
-      startDate = new Date(now.getFullYear(), now.getMonth(), 1);
-      endDate = new Date(now.getFullYear(), now.getMonth() + 1, 1);
-    }
-
-    const months = [];
-    const cursor = new Date(startDate.getFullYear(), startDate.getMonth(), 1);
-    while (cursor < endDate) {
-      months.push(`${cursor.getFullYear()}-${String(cursor.getMonth() + 1).padStart(2, '0')}`);
-      cursor.setMonth(cursor.getMonth() + 1);
-    }
+    const { startDate, endDate } = await getDateRangeForLeaderboard(range, from, to);
+    const months = buildMonthsList(startDate, endDate);
 
     const scores = await MonthlyScore.aggregate([
       { $match: { month: { $in: months } } },
@@ -3630,18 +3619,13 @@ module.exports = {
   updateAutoVerifyTiming,
   getAutoApprovedLog,
   overrideAutoApproved,
-  
-    // Admin Leaderboard + Reports ⬅️ NEW
+
+  // Admin Leaderboard + Reports
   getAdminLeaderboard,
   getMemberActivitiesReport,
   getMemberHeatmap,
 
-    // Admin Leaderboard + Reports
-  getAdminLeaderboard,
-  getMemberActivitiesReport,
-  getMemberHeatmap,
-
-  // ⬅️ NAYE EXPORTS
+  // Export functions
   exportMemberActivities,
   exportLeaderboard,
 };
