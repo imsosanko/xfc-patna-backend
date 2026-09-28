@@ -46,19 +46,23 @@ const {
   exportMembersCSV,
   exportMeetupAttendanceCSV,
   exportActivityLogCSV,
-  exportMemberWiseCSV,       // ⬅️ NAYA ADD
+  exportMemberWiseCSV,
   // Badge Manager
   getBadgesCatalog,
   searchUsersForBadges,
   giveBadgeToUser,
   giveAllBadgesToUser,
   removeBadgeFromUser,
-  // ⬇️ NEW — Auto-Verification
+  // Auto-Verification
   getAutoVerifySettings,
   toggleAutoVerify,
   updateAutoVerifyTiming,
   getAutoApprovedLog,
   overrideAutoApproved,
+  // ⬇️ NEW — Admin Leaderboard + Reports
+  getAdminLeaderboard,
+  getMemberActivitiesReport,
+  getMemberHeatmap,
 } = require('../controllers/admin.controller');
 const {
   getMe,
@@ -97,6 +101,8 @@ router.get('/members/:id/points-breakdown', adminProtect, getMemberPointsBreakdo
 // ═══════════════════════════════════════════
 router.get('/members/:id/detail', adminProtect, getMemberDetail);
 router.patch('/members/:id/detail', adminProtect, updateMemberDetail);
+router.get('/members/:id/activities', adminProtect, getMemberActivitiesReport);  // ⬅️ NEW
+router.get('/members/:id/heatmap', adminProtect, getMemberHeatmap);              // ⬅️ NEW
 
 // ═══════════════════════════════════════════
 // ACTIVITIES
@@ -122,7 +128,12 @@ router.patch('/auto-verify/override/:id', adminProtect, superAdminOnly, override
 router.get('/reports/monthly', adminProtect, getMonthlyReport);
 router.get('/reports/member-wise', adminProtect, getMemberWiseReport);
 router.get('/reports/export', adminProtect, exportMonthlyCSV);
-router.get('/reports/member-wise/export', adminProtect, exportMemberWiseCSV);   // ⬅️ NAYA ADD
+router.get('/reports/member-wise/export', adminProtect, exportMemberWiseCSV);
+
+// ═══════════════════════════════════════════
+// LEADERBOARD ⬅️ NEW
+// ═══════════════════════════════════════════
+router.get('/leaderboard', adminProtect, getAdminLeaderboard);
 
 // ═══════════════════════════════════════════
 // ANALYTICS

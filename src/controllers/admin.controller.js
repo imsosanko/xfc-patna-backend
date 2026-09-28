@@ -3152,6 +3152,232 @@ const overrideAutoApproved = async (req, res) => {
 };
 
 // ═══════════════════════════════════════════
+// ADMIN LEADERBOARD (Time Range Filters)
+// ═══════════════════════════════════════════
+const getAdminLeaderboard = async (req, res) => {
+  try {
+    const { range = 'month', from, to } = req.query;
+    const now = new Date();
+
+    let startDate, endDate;
+
+    if (range === 'month') {
+      startDate = new Date(now.getFullYear(), now.getMonth(), 1);
+      endDate = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+    } else if (range === 'quarter') {
+      startDate = new Date(now.getFullYear(), now.getMonth() - 2, 1);
+      endDate = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+    } else if (range === '6months') {
+      startDate = new Date(now.getFullYear(), now.getMonth() - 5, 1);
+      endDate = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+    } else if (range === 'year') {
+      startDate = new Date(now.getFullYear(), 0, 1);
+      endDate = new Date(now.getFullYear() + 1, 0, 1);
+    } else if (range === 'all') {
+      startDate = new Date(2020, 0, 1);
+      endDate = new Date(now.getFullYear() + 1, 0, 1);
+    } else if (range === 'manual' && from && to) {
+      startDate = new Date(from);
+      endDate = new Date(to);
+      endDate.setMonth(endDate.getMonth() + 1);
+    } else {
+      startDate = new Date(now.getFullYear(), now.getMonth(), 1);
+      endDate = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+    }
+
+    // Build month list in range
+    const months = [];
+    const cursor = new Date(startDate.getFullYear(), startDate.getMonth(), 1);
+    while (cursor < endDate) {
+      months.push(`${cursor.getFullYear()}-${String(cursor.getMonth() + 1).padStart(2, '0')}`);
+      cursor.setMonth(cursor.getMonth() + 1);
+    }
+
+    const scores = await MonthlyScore.aggregate([
+      { $match: { month: { $in: months } } },
+      {
+        $group: {
+          _id: '$member_id',
+          total_points: { $sum: '$total_points' },
+          active_months: { $addToSet: '$month' },
+          verified_activities: { $sum: '$verified_activities' },
+          active_days: { $sum: '$active_days' },
+          longest_streak: { $max: '$longest_streak' },
+          current_streak: { $max: '$current_streak' },
+        },
+      },
+      { $sort: { total_points: -1 } },
+      { $limit: 50 },
+    ]);
+
+    const totalMonths = months.length || 1;
+
+    const leaderboard = await Promise.all(
+      scores.map(async (s, idx) => {
+        const user = await User.findById(s._id).select('first_name last_name profile_photo_url role telegram_username').lean();
+        const profile = await MemberProfile.findOne({ user_id: s._id }).lean();
+
+        const activeMonthsCount = s.active_months.length || 1;
+        const avgPoints = s.total_points / totalMonths;
+        const avgActiveMonth = s.total_points / activeMonthsCount;
+
+        return {
+          rank: idx + 1,
+          member_id: s._id,
+          name: profile?.full_name || user?.first_name || 'Unknown',
+          username: user?.telegram_username || '',
+          xiaomi_id: profile?.xiaomi_id || 'N/A',
+          photo_url: user?.profile_photo_url || '',
+          role: user?.role || 'MEMBER',
+          total_points: Math.round(s.total_points * 100) / 100,
+          avg_points: Math.round(avgPoints * 100) / 100,
+          avg_active_month: Math.round(avgActiveMonth * 100) / 100,
+          active_months: activeMonthsCount,
+          total_months: totalMonths,
+          verified_activities: s.verified_activities,
+          active_days: s.active_days,
+          longest_streak: s.longest_streak || 0,
+          current_streak: s.current_streak || 0,
+        };
+      })
+    );
+
+    res.json({
+      success: true,
+      range,
+      months,
+      total_months: totalMonths,
+      leaderboard,
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+};
+
+// ═══════════════════════════════════════════
+// MEMBER ACTIVITIES REPORT (Time Range Filters)
+// ═══════════════════════════════════════════
+const getMemberActivitiesReport = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { range = 'all', from, to } = req.query;
+
+    const user = await User.findById(id);
+    if (!user) {
+      return res.status(404).json({ success: false, error: 'Member not found' });
+    }
+
+    const profile = await MemberProfile.findOne({ user_id: id }).lean();
+
+    const query = { member_id: id };
+
+    if (range !== 'all') {
+      const now = new Date();
+      let startDate = null;
+
+      if (range === '3m') startDate = new Date(now.getFullYear(), now.getMonth() - 2, 1);
+      else if (range === '6m') startDate = new Date(now.getFullYear(), now.getMonth() - 5, 1);
+      else if (range === '9m') startDate = new Date(now.getFullYear(), now.getMonth() - 8, 1);
+      else if (range === '12m') startDate = new Date(now.getFullYear(), now.getMonth() - 11, 1);
+      else if (range === 'manual' && from) startDate = new Date(from);
+
+      if (startDate) {
+        const startStr = `${startDate.getFullYear()}-${String(startDate.getMonth() + 1).padStart(2, '0')}`;
+        query.month = { $gte: startStr };
+
+        if (range === 'manual' && to) {
+          const toDate = new Date(to);
+          const endStr = `${toDate.getFullYear()}-${String(toDate.getMonth() + 1).padStart(2, '0')}`;
+          query.month = { $gte: startStr, $lte: endStr };
+        }
+      }
+    }
+
+    const activities = await Activity.find(query)
+      .sort({ submitted_at: -1 })
+      .limit(500)
+      .lean();
+
+    const stats = {
+      total: activities.length,
+      approved: activities.filter((a) => a.status === 'APPROVED').length,
+      rejected: activities.filter((a) => a.status === 'REJECTED').length,
+      pending: activities.filter((a) => a.status === 'PENDING').length,
+      total_points: Math.round(activities.reduce((sum, a) => sum + (a.points || 0), 0) * 100) / 100,
+    };
+
+    const formatted = activities.map((a) => ({
+      id: a._id,
+      date: a.date,
+      month: a.month,
+      platform: a.platform,
+      activity_type: a.activity_type,
+      url: a.url,
+      status: a.status,
+      points: a.points || 0,
+      submitted_at: a.submitted_at,
+      verified_at: a.verified_at,
+      rejection_reason: a.rejection_reason || '',
+      auto_verified: a.auto_verified || false,
+    }));
+
+    res.json({
+      success: true,
+      member: {
+        id: user._id,
+        name: profile?.full_name || user.first_name || 'Unknown',
+        xiaomi_id: profile?.xiaomi_id || 'N/A',
+        photo_url: user.profile_photo_url || '',
+      },
+      range,
+      stats,
+      activities: formatted,
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+};
+
+// ═══════════════════════════════════════════
+// MEMBER HEATMAP (Year-based activity)
+// ═══════════════════════════════════════════
+const getMemberHeatmap = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { year } = req.query;
+    const targetYear = parseInt(year) || new Date().getFullYear();
+
+    const user = await User.findById(id).select('first_name').lean();
+    if (!user) {
+      return res.status(404).json({ success: false, error: 'Member not found' });
+    }
+
+    const activities = await Activity.find({
+      member_id: id,
+      status: 'APPROVED',
+      date: { $regex: `^${targetYear}-` },
+    })
+      .select('date')
+      .lean();
+
+    const heatmap = {};
+    activities.forEach((a) => {
+      heatmap[a.date] = (heatmap[a.date] || 0) + 1;
+    });
+
+    res.json({
+      success: true,
+      year: targetYear,
+      heatmap,
+      total_activities: activities.length,
+      active_days: Object.keys(heatmap).length,
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+};
+
+// ═══════════════════════════════════════════
 // EXPORTS
 // ═══════════════════════════════════════════
 module.exports = {
@@ -3210,4 +3436,9 @@ module.exports = {
   updateAutoVerifyTiming,
   getAutoApprovedLog,
   overrideAutoApproved,
+  
+    // Admin Leaderboard + Reports ⬅️ NEW
+  getAdminLeaderboard,
+  getMemberActivitiesReport,
+  getMemberHeatmap,
 };
