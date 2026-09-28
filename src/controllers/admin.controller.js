@@ -3378,6 +3378,200 @@ const getMemberHeatmap = async (req, res) => {
 };
 
 // ═══════════════════════════════════════════
+// EXPORT: MEMBER ACTIVITIES REPORT
+// ═══════════════════════════════════════════
+const exportMemberActivities = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { range = 'all', from, to, format } = req.query;
+
+    const user = await User.findById(id);
+    if (!user) {
+      return res.status(404).json({ success: false, error: 'Member not found' });
+    }
+
+    const profile = await MemberProfile.findOne({ user_id: id }).lean();
+    const query = { member_id: id };
+
+    if (range !== 'all') {
+      const now = new Date();
+      let startDate = null;
+
+      if (range === '3m') startDate = new Date(now.getFullYear(), now.getMonth() - 2, 1);
+      else if (range === '6m') startDate = new Date(now.getFullYear(), now.getMonth() - 5, 1);
+      else if (range === '9m') startDate = new Date(now.getFullYear(), now.getMonth() - 8, 1);
+      else if (range === '12m') startDate = new Date(now.getFullYear(), now.getMonth() - 11, 1);
+      else if (range === 'manual' && from) startDate = new Date(from);
+
+      if (startDate) {
+        const startStr = `${startDate.getFullYear()}-${String(startDate.getMonth() + 1).padStart(2, '0')}`;
+        query.month = { $gte: startStr };
+
+        if (range === 'manual' && to) {
+          const toDate = new Date(to);
+          const endStr = `${toDate.getFullYear()}-${String(toDate.getMonth() + 1).padStart(2, '0')}`;
+          query.month = { $gte: startStr, $lte: endStr };
+        }
+      }
+    }
+
+    const activities = await Activity.find(query)
+      .sort({ submitted_at: -1 })
+      .limit(5000)
+      .lean();
+
+    const headers = [
+      'Date', 'Month', 'Platform', 'Type', 'URL', 'Status',
+      'Points', 'Auto-Verified', 'Submitted At', 'Verified At', 'Rejection Reason',
+    ];
+
+    const rows = activities.map((a) => [
+      a.date,
+      a.month,
+      a.platform,
+      a.activity_type,
+      a.url,
+      a.status,
+      a.points || 0,
+      a.auto_verified ? 'YES' : 'NO',
+      a.submitted_at ? new Date(a.submitted_at).toLocaleString('en-IN') : '',
+      a.verified_at ? new Date(a.verified_at).toLocaleString('en-IN') : '',
+      a.rejection_reason || '',
+    ]);
+
+    const memberName = profile?.full_name || user.first_name || 'Member';
+    const safeName = memberName.replace(/[^a-z0-9]/gi, '-').toLowerCase();
+
+    const { buffer, contentType, extension } = await generateExport(format, {
+      title: `Activity Report — ${memberName} (${range})`,
+      headers,
+      rows,
+      sheetName: 'Activities',
+    });
+
+    const filename = `xfc-member-${safeName}-activities-${range}-${Date.now()}.${extension}`;
+
+    res.setHeader('Content-Type', contentType);
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.send(buffer);
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+};
+
+// ═══════════════════════════════════════════
+// EXPORT: ADMIN LEADERBOARD
+// ═══════════════════════════════════════════
+const exportLeaderboard = async (req, res) => {
+  try {
+    const { range = 'month', from, to, format } = req.query;
+    const now = new Date();
+
+    let startDate, endDate;
+
+    if (range === 'month') {
+      startDate = new Date(now.getFullYear(), now.getMonth(), 1);
+      endDate = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+    } else if (range === 'quarter') {
+      startDate = new Date(now.getFullYear(), now.getMonth() - 2, 1);
+      endDate = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+    } else if (range === '6months') {
+      startDate = new Date(now.getFullYear(), now.getMonth() - 5, 1);
+      endDate = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+    } else if (range === 'year') {
+      startDate = new Date(now.getFullYear(), 0, 1);
+      endDate = new Date(now.getFullYear() + 1, 0, 1);
+    } else if (range === 'all') {
+      startDate = new Date(2020, 0, 1);
+      endDate = new Date(now.getFullYear() + 1, 0, 1);
+    } else if (range === 'manual' && from && to) {
+      startDate = new Date(from);
+      endDate = new Date(to);
+      endDate.setMonth(endDate.getMonth() + 1);
+    } else {
+      startDate = new Date(now.getFullYear(), now.getMonth(), 1);
+      endDate = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+    }
+
+    const months = [];
+    const cursor = new Date(startDate.getFullYear(), startDate.getMonth(), 1);
+    while (cursor < endDate) {
+      months.push(`${cursor.getFullYear()}-${String(cursor.getMonth() + 1).padStart(2, '0')}`);
+      cursor.setMonth(cursor.getMonth() + 1);
+    }
+
+    const scores = await MonthlyScore.aggregate([
+      { $match: { month: { $in: months } } },
+      {
+        $group: {
+          _id: '$member_id',
+          total_points: { $sum: '$total_points' },
+          active_months: { $addToSet: '$month' },
+          verified_activities: { $sum: '$verified_activities' },
+          active_days: { $sum: '$active_days' },
+          longest_streak: { $max: '$longest_streak' },
+          current_streak: { $max: '$current_streak' },
+        },
+      },
+      { $sort: { total_points: -1 } },
+      { $limit: 200 },
+    ]);
+
+    const totalMonths = months.length || 1;
+
+    const headers = [
+      'Rank', 'Name', 'Xiaomi ID', 'Username', 'Role',
+      'Avg Points/Month', 'Total Points', 'Active Months', 'Total Months',
+      'Activities', 'Active Days', 'Longest Streak', 'Current Streak',
+    ];
+
+    const rows = [];
+
+    for (let i = 0; i < scores.length; i++) {
+      const s = scores[i];
+      const user = await User.findById(s._id).select('first_name last_name telegram_username role').lean();
+      const profile = await MemberProfile.findOne({ user_id: s._id }).lean();
+
+      const activeMonthsCount = s.active_months.length || 1;
+      const avgPoints = s.total_points / totalMonths;
+
+      rows.push([
+        i + 1,
+        profile?.full_name || user?.first_name || 'Unknown',
+        profile?.xiaomi_id || 'N/A',
+        user?.telegram_username || '',
+        user?.role || 'MEMBER',
+        Math.round(avgPoints * 100) / 100,
+        Math.round(s.total_points * 100) / 100,
+        activeMonthsCount,
+        totalMonths,
+        s.verified_activities,
+        s.active_days,
+        s.longest_streak || 0,
+        s.current_streak || 0,
+      ]);
+    }
+
+    const rangeLabel = range === 'manual' ? `${from}_to_${to}` : range;
+
+    const { buffer, contentType, extension } = await generateExport(format, {
+      title: `Leaderboard — ${rangeLabel} (${totalMonths} months)`,
+      headers,
+      rows,
+      sheetName: 'Leaderboard',
+    });
+
+    const filename = `xfc-leaderboard-${rangeLabel}-${Date.now()}.${extension}`;
+
+    res.setHeader('Content-Type', contentType);
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.send(buffer);
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+};
+
+// ═══════════════════════════════════════════
 // EXPORTS
 // ═══════════════════════════════════════════
 module.exports = {
@@ -3441,4 +3635,13 @@ module.exports = {
   getAdminLeaderboard,
   getMemberActivitiesReport,
   getMemberHeatmap,
+
+    // Admin Leaderboard + Reports
+  getAdminLeaderboard,
+  getMemberActivitiesReport,
+  getMemberHeatmap,
+
+  // ⬅️ NAYE EXPORTS
+  exportMemberActivities,
+  exportLeaderboard,
 };

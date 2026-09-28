@@ -24,7 +24,6 @@ const {
   exportMonthlyCSV,
   triggerMidnightJob,
   getProcessingStatus,
-  // Meetups
   createMeetup,
   updateMeetup,
   deleteMeetup,
@@ -37,32 +36,31 @@ const {
   reviewInstagramLink,
   editMemberRSVP,
   downloadMeetupAttendancePDF,
-  // Notifications
   broadcastToMembers,
   getBroadcastHistory,
   deleteBroadcast,
   updateBroadcast,
-  // Data Exports
   exportMembersCSV,
   exportMeetupAttendanceCSV,
   exportActivityLogCSV,
   exportMemberWiseCSV,
-  // Badge Manager
   getBadgesCatalog,
   searchUsersForBadges,
   giveBadgeToUser,
   giveAllBadgesToUser,
   removeBadgeFromUser,
-  // Auto-Verification
   getAutoVerifySettings,
   toggleAutoVerify,
   updateAutoVerifyTiming,
   getAutoApprovedLog,
   overrideAutoApproved,
-  // ⬇️ NEW — Admin Leaderboard + Reports
+  // Admin Leaderboard + Reports
   getAdminLeaderboard,
   getMemberActivitiesReport,
   getMemberHeatmap,
+  // ⬅️ NAYE EXPORTS
+  exportMemberActivities,
+  exportLeaderboard,
 } = require('../controllers/admin.controller');
 const {
   getMe,
@@ -97,12 +95,13 @@ router.post('/members/:id/adjust-points', adminProtect, adjustMemberPoints);
 router.get('/members/:id/points-breakdown', adminProtect, getMemberPointsBreakdown);
 
 // ═══════════════════════════════════════════
-// MEMBER DETAIL (View + Edit)
+// MEMBER DETAIL
 // ═══════════════════════════════════════════
 router.get('/members/:id/detail', adminProtect, getMemberDetail);
 router.patch('/members/:id/detail', adminProtect, updateMemberDetail);
-router.get('/members/:id/activities', adminProtect, getMemberActivitiesReport);  // ⬅️ NEW
-router.get('/members/:id/heatmap', adminProtect, getMemberHeatmap);              // ⬅️ NEW
+router.get('/members/:id/activities', adminProtect, getMemberActivitiesReport);
+router.get('/members/:id/heatmap', adminProtect, getMemberHeatmap);
+router.get('/members/:id/activities/export', adminProtect, exportMemberActivities);  // ⬅️ NEW
 
 // ═══════════════════════════════════════════
 // ACTIVITIES
@@ -114,7 +113,7 @@ router.post('/activities/bulk-approve', adminProtect, bulkApprove);
 router.post('/activities/bulk-reject', adminProtect, bulkReject);
 
 // ═══════════════════════════════════════════
-// AUTO-VERIFICATION (Super Admin only)
+// AUTO-VERIFICATION
 // ═══════════════════════════════════════════
 router.get('/auto-verify/settings', adminProtect, superAdminOnly, getAutoVerifySettings);
 router.post('/auto-verify/toggle', adminProtect, superAdminOnly, toggleAutoVerify);
@@ -131,9 +130,10 @@ router.get('/reports/export', adminProtect, exportMonthlyCSV);
 router.get('/reports/member-wise/export', adminProtect, exportMemberWiseCSV);
 
 // ═══════════════════════════════════════════
-// LEADERBOARD ⬅️ NEW
+// LEADERBOARD
 // ═══════════════════════════════════════════
 router.get('/leaderboard', adminProtect, getAdminLeaderboard);
+router.get('/leaderboard/export', adminProtect, exportLeaderboard);  // ⬅️ NEW
 
 // ═══════════════════════════════════════════
 // ANALYTICS
@@ -141,7 +141,7 @@ router.get('/leaderboard', adminProtect, getAdminLeaderboard);
 router.get('/analytics', adminProtect, getAnalytics);
 
 // ═══════════════════════════════════════════
-// MIDNIGHT JOB — Super Admin Only
+// MIDNIGHT JOB
 // ═══════════════════════════════════════════
 router.post('/trigger-midnight-job', adminProtect, superAdminOnly, triggerMidnightJob);
 router.get('/processing-status', adminProtect, getProcessingStatus);
@@ -199,7 +199,7 @@ router.post('/admins/:id/reset-password', adminProtect, superAdminOnly, resetAdm
 router.delete('/admins/:id', adminProtect, superAdminOnly, deleteAdmin);
 
 // ═══════════════════════════════════════════
-// ADMIN ↔ MEMBER LINKING (Super Admin only)
+// ADMIN ↔ MEMBER LINKING
 // ═══════════════════════════════════════════
 router.get('/admins/search-members', adminProtect, superAdminOnly, searchMembersForLink);
 router.patch('/admins/:id/link-member', adminProtect, superAdminOnly, linkAdminToMember);
