@@ -77,8 +77,10 @@ const createOrUpdateProfile = async (req, res) => {
     } else {
       profile = await MemberProfile.create({
         user_id: req.user._id,
-        full_name, telegram_username: telegram_username || req.user.telegram_username || '',
-        xiaomi_id, whatsapp_number: cleanWhatsApp,
+        full_name,
+        telegram_username: telegram_username || req.user.telegram_username || '',
+        xiaomi_id,
+        whatsapp_number: cleanWhatsApp,
         instagram_url: instagram_url || '',
         facebook_url: facebook_url || '',
         x_twitter_url: x_twitter_url || '',
@@ -126,12 +128,12 @@ const getPointsBreakdown = async (req, res) => {
 };
 
 // ═══════════════════════════════════════════
-// ✅ NEW: GET DASHBOARD (with month selector)
+// ✅ GET DASHBOARD (month selector + overall)
 // GET /api/member/dashboard?month=2026-09
 // ═══════════════════════════════════════════
 const getDashboard = async (req, res) => {
   try {
-    const { month } = req.query; // "2026-09" or "all"
+    const { month } = req.query;
     const currentMonth = formatDateIST().substring(0, 7);
     const selectedMonth = month && month !== 'current' ? month : currentMonth;
 
@@ -165,12 +167,38 @@ const getDashboard = async (req, res) => {
         monthData.percentage = score.percentage || 0;
         monthData.found = true;
 
-        // Rank for this month
         const rankCount = await MonthlyScore.countDocuments({
           month: selectedMonth,
           total_points: { $gt: score.total_points },
         });
         monthData.rank = rankCount + 1;
+      } else {
+        // ✅ FALLBACK: MonthlyScore nahi hai, Activities se calculate
+        const monthActivities = await Activity.find({
+          member_id: memberId,
+          month: selectedMonth,
+          status: 'APPROVED',
+        }).lean();
+
+        if (monthActivities.length > 0) {
+          monthData.activities = monthActivities.length;
+          monthData.points = Math.round(
+            monthActivities.reduce((sum, a) => sum + (a.points || 0), 0) * 100
+          ) / 100;
+          monthData.active_days = new Set(monthActivities.map((a) => a.date)).size;
+          monthData.percentage = Math.min((monthData.points / 100) * 100, 100);
+          monthData.current_streak = 0;
+          monthData.longest_streak = 0;
+          monthData.found = true;
+
+          const rankAgg = await MonthlyScore.aggregate([
+            { $match: { month: selectedMonth } },
+            { $group: { _id: '$member_id', total: { $sum: '$total_points' } } },
+            { $match: { total: { $gt: monthData.points } } },
+            { $count: 'higher' },
+          ]);
+          monthData.rank = (rankAgg[0]?.higher || 0) + 1;
+        }
       }
     }
 
@@ -185,6 +213,7 @@ const getDashboard = async (req, res) => {
       months_active: allScores.length,
       avg_per_month: 0,
       rank: null,
+      total_members: 0,
     };
 
     allScores.forEach((s) => {
@@ -199,7 +228,6 @@ const getDashboard = async (req, res) => {
       ? Math.round((overall.total_points / allScores.length) * 100) / 100
       : 0;
 
-    // Overall rank (aggregate all-time points)
     const rankAgg = await MonthlyScore.aggregate([
       { $group: { _id: '$member_id', total: { $sum: '$total_points' } } },
       { $sort: { total: -1 } },
@@ -208,19 +236,22 @@ const getDashboard = async (req, res) => {
     overall.rank = myIdx >= 0 ? myIdx + 1 : null;
     overall.total_members = rankAgg.length;
 
-    // ═══ AVAILABLE MONTHS ═══
-    const monthsAgg = await MonthlyScore.aggregate([
-      { $match: { member_id: memberId } },
-      { $group: { _id: '$month' } },
-      { $sort: { _id: -1 } },
-      { $limit: 24 },
+    // ✅ AVAILABLE MONTHS — MonthlyScore + Activity dono se
+    const [scoreMonths, activityMonths] = await Promise.all([
+      MonthlyScore.distinct('month', { member_id: memberId }),
+      Activity.distinct('month', { member_id: memberId }),
     ]);
-    const availableMonths = monthsAgg.map((m) => m._id);
+
+    const availableMonths = [...new Set([...scoreMonths, ...activityMonths])]
+      .filter(Boolean)
+      .sort()
+      .reverse();
+
     if (!availableMonths.includes(currentMonth)) {
       availableMonths.unshift(currentMonth);
     }
 
-    // ═══ RECENT ACTIVITIES (last 5) ═══
+    // ═══ RECENT ACTIVITIES ═══
     const recentActivities = await Activity.find({ member_id: memberId })
       .sort({ submitted_at: -1 })
       .limit(5)
@@ -316,7 +347,7 @@ module.exports = {
   getProfile,
   createOrUpdateProfile,
   getPointsBreakdown,
-  getDashboard, // ✅ NEW
+  getDashboard,
   getNotificationPreferences,
   updateNotificationPreferences,
 };
