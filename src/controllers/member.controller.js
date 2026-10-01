@@ -2,6 +2,7 @@ const MemberProfile = require('../models/MemberProfile');
 const MonthlyScore = require('../models/MonthlyScore');
 const User = require('../models/User');
 const Admin = require('../models/Admin');
+const Activity = require('../models/Activity');
 const { formatDateIST } = require('../services/points.service');
 
 /**
@@ -10,11 +11,7 @@ const { formatDateIST } = require('../services/points.service');
 const getProfile = async (req, res) => {
   try {
     const profile = await MemberProfile.findOne({ user_id: req.user._id });
-
-    // Full user with badges + admin_badges
     const fullUser = await User.findById(req.user._id).select('badges admin_badges');
-
-    // ⬇️ NEW: Check if this user is an Admin
     const adminInfo = await Admin.findOne({ user_id: req.user._id }).select('name role email').lean();
 
     res.json({
@@ -30,35 +27,24 @@ const getProfile = async (req, res) => {
         status: req.user.status,
         badges: fullUser?.badges || [],
         admin_badges: fullUser?.admin_badges || [],
-
-        // ⬇️ NEW: Admin info
         is_admin: !!adminInfo,
         admin_role: adminInfo ? adminInfo.role : null,
         admin_name: adminInfo ? adminInfo.name : null,
       },
     });
   } catch (error) {
-    res.status(500).json({
-      success: false,
-      error: error.message,
-    });
+    res.status(500).json({ success: false, error: error.message });
   }
 };
 
 /**
  * PUT /api/member/profile
- * Create or update profile
  */
 const createOrUpdateProfile = async (req, res) => {
   try {
     const {
-      full_name,
-      telegram_username,
-      xiaomi_id,
-      whatsapp_number,
-      instagram_url,
-      facebook_url,
-      x_twitter_url,
+      full_name, telegram_username, xiaomi_id, whatsapp_number,
+      instagram_url, facebook_url, x_twitter_url,
     } = req.body;
 
     if (!full_name || !xiaomi_id || !whatsapp_number) {
@@ -69,18 +55,12 @@ const createOrUpdateProfile = async (req, res) => {
     }
 
     if (xiaomi_id.length < 5) {
-      return res.status(400).json({
-        success: false,
-        error: 'Xiaomi ID must be at least 5 characters',
-      });
+      return res.status(400).json({ success: false, error: 'Xiaomi ID must be at least 5 characters' });
     }
 
     const cleanWhatsApp = whatsapp_number.replace(/\D/g, '');
     if (cleanWhatsApp.length < 10 || cleanWhatsApp.length > 15) {
-      return res.status(400).json({
-        success: false,
-        error: 'Invalid WhatsApp number',
-      });
+      return res.status(400).json({ success: false, error: 'Invalid WhatsApp number' });
     }
 
     let profile = await MemberProfile.findOne({ user_id: req.user._id });
@@ -97,31 +77,20 @@ const createOrUpdateProfile = async (req, res) => {
     } else {
       profile = await MemberProfile.create({
         user_id: req.user._id,
-        full_name,
-        telegram_username: telegram_username || req.user.telegram_username || '',
-        xiaomi_id,
-        whatsapp_number: cleanWhatsApp,
+        full_name, telegram_username: telegram_username || req.user.telegram_username || '',
+        xiaomi_id, whatsapp_number: cleanWhatsApp,
         instagram_url: instagram_url || '',
         facebook_url: facebook_url || '',
         x_twitter_url: x_twitter_url || '',
       });
     }
 
-    res.json({
-      success: true,
-      profile,
-    });
+    res.json({ success: true, profile });
   } catch (error) {
     if (error.code === 11000) {
-      return res.status(409).json({
-        success: false,
-        error: 'Xiaomi ID already registered by another member',
-      });
+      return res.status(409).json({ success: false, error: 'Xiaomi ID already registered by another member' });
     }
-    res.status(500).json({
-      success: false,
-      error: error.message,
-    });
+    res.status(500).json({ success: false, error: error.message });
   }
 };
 
@@ -131,10 +100,7 @@ const createOrUpdateProfile = async (req, res) => {
 const getPointsBreakdown = async (req, res) => {
   try {
     const month = formatDateIST().substring(0, 7);
-    const score = await MonthlyScore.findOne({
-      member_id: req.user._id,
-      month,
-    });
+    const score = await MonthlyScore.findOne({ member_id: req.user._id, month });
 
     res.json({
       success: true,
@@ -155,10 +121,131 @@ const getPointsBreakdown = async (req, res) => {
       },
     });
   } catch (error) {
-    res.status(500).json({
-      success: false,
-      error: error.message,
+    res.status(500).json({ success: false, error: error.message });
+  }
+};
+
+// ═══════════════════════════════════════════
+// ✅ NEW: GET DASHBOARD (with month selector)
+// GET /api/member/dashboard?month=2026-09
+// ═══════════════════════════════════════════
+const getDashboard = async (req, res) => {
+  try {
+    const { month } = req.query; // "2026-09" or "all"
+    const currentMonth = formatDateIST().substring(0, 7);
+    const selectedMonth = month && month !== 'current' ? month : currentMonth;
+
+    const memberId = req.user._id;
+
+    // ═══ SELECTED MONTH DATA ═══
+    let monthData = {
+      month: selectedMonth,
+      points: 0,
+      current_streak: 0,
+      longest_streak: 0,
+      active_days: 0,
+      activities: 0,
+      percentage: 0,
+      rank: null,
+      found: false,
+    };
+
+    if (selectedMonth !== 'all') {
+      const score = await MonthlyScore.findOne({
+        member_id: memberId,
+        month: selectedMonth,
+      }).lean();
+
+      if (score) {
+        monthData.points = score.total_points || 0;
+        monthData.current_streak = score.current_streak || 0;
+        monthData.longest_streak = score.longest_streak || 0;
+        monthData.active_days = score.active_days || 0;
+        monthData.activities = score.verified_activities || 0;
+        monthData.percentage = score.percentage || 0;
+        monthData.found = true;
+
+        // Rank for this month
+        const rankCount = await MonthlyScore.countDocuments({
+          month: selectedMonth,
+          total_points: { $gt: score.total_points },
+        });
+        monthData.rank = rankCount + 1;
+      }
+    }
+
+    // ═══ OVERALL DATA (ALL TIME) ═══
+    const allScores = await MonthlyScore.find({ member_id: memberId }).lean();
+
+    const overall = {
+      total_points: 0,
+      longest_streak: 0,
+      total_active_days: 0,
+      total_activities: 0,
+      months_active: allScores.length,
+      avg_per_month: 0,
+      rank: null,
+    };
+
+    allScores.forEach((s) => {
+      overall.total_points += s.total_points || 0;
+      overall.longest_streak = Math.max(overall.longest_streak, s.longest_streak || 0);
+      overall.total_active_days += s.active_days || 0;
+      overall.total_activities += s.verified_activities || 0;
     });
+
+    overall.total_points = Math.round(overall.total_points * 100) / 100;
+    overall.avg_per_month = allScores.length > 0
+      ? Math.round((overall.total_points / allScores.length) * 100) / 100
+      : 0;
+
+    // Overall rank (aggregate all-time points)
+    const rankAgg = await MonthlyScore.aggregate([
+      { $group: { _id: '$member_id', total: { $sum: '$total_points' } } },
+      { $sort: { total: -1 } },
+    ]);
+    const myIdx = rankAgg.findIndex((m) => String(m._id) === String(memberId));
+    overall.rank = myIdx >= 0 ? myIdx + 1 : null;
+    overall.total_members = rankAgg.length;
+
+    // ═══ AVAILABLE MONTHS ═══
+    const monthsAgg = await MonthlyScore.aggregate([
+      { $match: { member_id: memberId } },
+      { $group: { _id: '$month' } },
+      { $sort: { _id: -1 } },
+      { $limit: 24 },
+    ]);
+    const availableMonths = monthsAgg.map((m) => m._id);
+    if (!availableMonths.includes(currentMonth)) {
+      availableMonths.unshift(currentMonth);
+    }
+
+    // ═══ RECENT ACTIVITIES (last 5) ═══
+    const recentActivities = await Activity.find({ member_id: memberId })
+      .sort({ submitted_at: -1 })
+      .limit(5)
+      .lean();
+
+    res.json({
+      success: true,
+      current_month: currentMonth,
+      selected_month: selectedMonth,
+      month_data: monthData,
+      overall,
+      available_months: availableMonths,
+      recent_activities: recentActivities.map((a) => ({
+        id: a._id,
+        platform: a.platform,
+        activity_type: a.activity_type,
+        status: a.status,
+        points: a.points || 0,
+        date: a.date,
+        submitted_at: a.submitted_at,
+      })),
+    });
+  } catch (error) {
+    console.error('getDashboard error:', error);
+    res.status(500).json({ success: false, error: error.message });
   }
 };
 
@@ -168,9 +255,7 @@ const getPointsBreakdown = async (req, res) => {
 const getNotificationPreferences = async (req, res) => {
   try {
     const user = await User.findById(req.user._id).select('notification_preferences');
-    if (!user) {
-      return res.status(404).json({ success: false, error: 'User not found' });
-    }
+    if (!user) return res.status(404).json({ success: false, error: 'User not found' });
 
     const defaults = {
       daily_reminder: true,
@@ -183,10 +268,7 @@ const getNotificationPreferences = async (req, res) => {
 
     res.json({
       success: true,
-      preferences: {
-        ...defaults,
-        ...(user.notification_preferences || {}),
-      },
+      preferences: { ...defaults, ...(user.notification_preferences || {}) },
     });
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
@@ -199,12 +281,8 @@ const getNotificationPreferences = async (req, res) => {
 const updateNotificationPreferences = async (req, res) => {
   try {
     const allowed = [
-      'daily_reminder',
-      'streak_alerts',
-      'meetup_reminders',
-      'activity_updates',
-      'broadcasts',
-      'points_updates',
+      'daily_reminder', 'streak_alerts', 'meetup_reminders',
+      'activity_updates', 'broadcasts', 'points_updates',
     ];
 
     const updates = {};
@@ -215,10 +293,7 @@ const updateNotificationPreferences = async (req, res) => {
     }
 
     if (Object.keys(updates).length === 0) {
-      return res.status(400).json({
-        success: false,
-        error: 'No valid preferences to update',
-      });
+      return res.status(400).json({ success: false, error: 'No valid preferences to update' });
     }
 
     const user = await User.findByIdAndUpdate(
@@ -241,6 +316,7 @@ module.exports = {
   getProfile,
   createOrUpdateProfile,
   getPointsBreakdown,
+  getDashboard, // ✅ NEW
   getNotificationPreferences,
   updateNotificationPreferences,
 };

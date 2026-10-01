@@ -9,6 +9,18 @@ const getFullName = (user) => {
   return `${user.first_name || ''} ${user.last_name || ''}`.trim() || 'Unknown';
 };
 
+// ✅ IST current month
+const getCurrentMonthIST = () =>
+  new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' }).substring(0, 7);
+
+// ✅ Range resolve karo: 'all' | 'month' | 'YYYY-MM'
+const resolveRange = (range) => {
+  const currentMonth = getCurrentMonthIST();
+  if (range === 'all') return { type: 'all' };
+  if (/^\d{4}-\d{2}$/.test(range)) return { type: 'month', month: range };
+  return { type: 'month', month: currentMonth };
+};
+
 // ═══════════════════════════════════════════
 // GET USER PROFILE
 // ═══════════════════════════════════════════
@@ -18,11 +30,8 @@ exports.getUserProfile = async (req, res) => {
     const user = await User.findOne({ telegram_id: telegramId });
     if (!user) return res.status(404).json({ message: 'User not found' });
 
-    const currentMonth = new Date().toISOString().slice(0, 7);
-    const score = await MonthlyScore.findOne({
-      member_id: user._id,
-      month: currentMonth,
-    });
+    const currentMonth = getCurrentMonthIST();
+    const score = await MonthlyScore.findOne({ member_id: user._id, month: currentMonth });
 
     res.json({
       name: getFullName(user),
@@ -41,16 +50,16 @@ exports.getUserProfile = async (req, res) => {
 
 // ═══════════════════════════════════════════
 // GET LEADERBOARD (Points-based)
-// Supports: ?range=month (default) | ?range=all
+// Supports: ?range=month (default) | ?range=all | ?range=YYYY-MM
 // ═══════════════════════════════════════════
 exports.getLeaderboard = async (req, res) => {
   try {
     const { range = 'month' } = req.query;
-    const currentMonth = new Date().toISOString().slice(0, 7);
+    const resolved = resolveRange(range);
 
     let leaderboard;
 
-    if (range === 'all') {
+    if (resolved.type === 'all') {
       // ⬇️ ALL TIME — saare months aggregate karo
       const scores = await MonthlyScore.aggregate([
         {
@@ -63,8 +72,9 @@ exports.getLeaderboard = async (req, res) => {
             current_streak: { $max: '$current_streak' },
           },
         },
-        { $sort: { total_points: -1 } },
-        { $limit: 100 },
+        { $match: { total_points: { $gt: 0 } } },
+        { $sort: { total_points: -1, verified_activities: -1 } },
+        { $limit: 500 },
       ]);
 
       const memberIds = scores.map((s) => s._id);
@@ -109,43 +119,55 @@ exports.getLeaderboard = async (req, res) => {
         })
         .filter(Boolean);
     } else {
-      // ⬇️ THIS MONTH (default)
-      const scores = await MonthlyScore.find({ month: currentMonth })
-        .sort({ total_points: -1 })
-        .limit(100)
-        .populate('member_id', 'first_name last_name telegram_username profile_photo_url role badges admin_badges');
+      // ⬇️ SPECIFIC MONTH
+      const scores = await MonthlyScore.find({
+        month: resolved.month,
+        total_points: { $gt: 0 },
+      })
+        .sort({ total_points: -1, verified_activities: -1 })
+        .limit(500)
+        .populate('member_id', 'first_name last_name telegram_username profile_photo_url role badges admin_badges')
+        .lean();
 
-      leaderboard = scores.map((score, index) => {
-        const user = score.member_id;
+      leaderboard = scores
+        .filter((s) => s.member_id)
+        .map((score, index) => {
+          const user = score.member_id;
 
-        const userBadges = (user?.badges || [])
-          .sort((a, b) => (b.streak_days || 0) - (a.streak_days || 0))
-          .slice(0, 3)
-          .map((b) => ({ code: b.code, emoji: b.emoji, title: b.title }));
+          const userBadges = (user.badges || [])
+            .sort((a, b) => (b.streak_days || 0) - (a.streak_days || 0))
+            .slice(0, 3)
+            .map((b) => ({ code: b.code, emoji: b.emoji, title: b.title }));
 
-        const userAdminBadges = (user?.admin_badges || [])
-          .slice(0, 3)
-          .map((b) => ({ code: b.code, emoji: b.emoji, title: b.title, color: b.color }));
+          const userAdminBadges = (user.admin_badges || [])
+            .slice(0, 3)
+            .map((b) => ({ code: b.code, emoji: b.emoji, title: b.title, color: b.color }));
 
-        return {
-          rank: index + 1,
-          member_id: user?._id || null,
-          name: getFullName(user),
-          username: user?.telegram_username || 'unknown',
-          avatarUrl: user?.profile_photo_url || '',
-          role: user?.role || 'MEMBER',
-          badges: userBadges,
-          admin_badges: userAdminBadges,
-          points: Math.round(score.total_points * 100) / 100,
-          verified_activities: score.verified_activities || 0,
-          active_days: score.active_days || 0,
-          longest_streak: score.longest_streak || 0,
-          current_streak: score.current_streak || 0,
-        };
-      });
+          return {
+            rank: index + 1,
+            member_id: user._id,
+            name: getFullName(user),
+            username: user.telegram_username || 'unknown',
+            avatarUrl: user.profile_photo_url || '',
+            role: user.role || 'MEMBER',
+            badges: userBadges,
+            admin_badges: userAdminBadges,
+            points: Math.round(score.total_points * 100) / 100,
+            verified_activities: score.verified_activities || 0,
+            active_days: score.active_days || 0,
+            longest_streak: score.longest_streak || 0,
+            current_streak: score.current_streak || 0,
+          };
+        });
     }
 
-    res.json(leaderboard);
+    // ✅ Consistent response format
+    res.json({
+      success: true,
+      month: resolved.type === 'all' ? 'all' : resolved.month,
+      filter: resolved.type,
+      leaderboard,
+    });
   } catch (error) {
     console.error('getLeaderboard error:', error);
     res.status(500).json({ message: error.message });
@@ -154,16 +176,16 @@ exports.getLeaderboard = async (req, res) => {
 
 // ═══════════════════════════════════════════
 // GET STREAK LEADERBOARD
-// Supports: ?range=month (default) | ?range=all
+// Supports: ?range=month (default) | ?range=all | ?range=YYYY-MM
 // ═══════════════════════════════════════════
 exports.getStreakLeaderboard = async (req, res) => {
   try {
     const { range = 'month' } = req.query;
-    const currentMonth = new Date().toISOString().slice(0, 7);
+    const resolved = resolveRange(range);
 
     let leaderboard;
 
-    if (range === 'all') {
+    if (resolved.type === 'all') {
       // ⬇️ ALL TIME — max streak across all months
       const scores = await MonthlyScore.aggregate([
         {
@@ -176,7 +198,7 @@ exports.getStreakLeaderboard = async (req, res) => {
         },
         { $match: { longest_streak: { $gt: 0 } } },
         { $sort: { longest_streak: -1, current_streak: -1 } },
-        { $limit: 100 },
+        { $limit: 500 },
       ]);
 
       const memberIds = scores.map((s) => s._id);
@@ -219,13 +241,13 @@ exports.getStreakLeaderboard = async (req, res) => {
         })
         .filter(Boolean);
     } else {
-      // ⬇️ THIS MONTH
+      // ⬇️ SPECIFIC MONTH
       const scores = await MonthlyScore.find({
-        month: currentMonth,
+        month: resolved.month,
         longest_streak: { $gt: 0 },
       })
         .sort({ longest_streak: -1, current_streak: -1 })
-        .limit(100)
+        .limit(500)
         .populate('member_id', 'first_name last_name telegram_username profile_photo_url role badges admin_badges')
         .lean();
 
@@ -259,7 +281,12 @@ exports.getStreakLeaderboard = async (req, res) => {
         });
     }
 
-    res.json(leaderboard);
+    res.json({
+      success: true,
+      month: resolved.type === 'all' ? 'all' : resolved.month,
+      filter: resolved.type,
+      leaderboard,
+    });
   } catch (error) {
     console.error('getStreakLeaderboard error:', error);
     res.status(500).json({ message: error.message });
@@ -286,28 +313,16 @@ exports.refreshMyPhoto = async (req, res) => {
     if (freshUrl && freshUrl !== user.profile_photo_url) {
       user.profile_photo_url = freshUrl;
       await user.save();
-      return res.json({
-        success: true,
-        updated: true,
-        profile_photo_url: freshUrl,
-      });
+      return res.json({ success: true, updated: true, profile_photo_url: freshUrl });
     }
 
     if (!freshUrl && user.profile_photo_url) {
       user.profile_photo_url = '';
       await user.save();
-      return res.json({
-        success: true,
-        updated: true,
-        profile_photo_url: '',
-      });
+      return res.json({ success: true, updated: true, profile_photo_url: '' });
     }
 
-    res.json({
-      success: true,
-      updated: false,
-      profile_photo_url: user.profile_photo_url,
-    });
+    res.json({ success: true, updated: false, profile_photo_url: user.profile_photo_url });
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
   }

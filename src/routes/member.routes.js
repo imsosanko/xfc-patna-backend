@@ -5,6 +5,7 @@ const {
   getProfile,
   createOrUpdateProfile,
   getPointsBreakdown,
+  getDashboard, // ✅ NEW
   getNotificationPreferences,
   updateNotificationPreferences,
 } = require('../controllers/member.controller');
@@ -23,12 +24,17 @@ router.get('/profile', protect, getProfile);
 router.put('/profile', protect, createOrUpdateProfile);
 
 // ═══════════════════════════════════════════
+// ✅ NEW: DASHBOARD (month selector + overall)
+// ═══════════════════════════════════════════
+router.get('/dashboard', protect, getDashboard);
+
+// ═══════════════════════════════════════════
 // POINTS
 // ═══════════════════════════════════════════
 router.get('/points-breakdown', protect, getPointsBreakdown);
 
 // ═══════════════════════════════════════════
-// NOTIFICATION PREFERENCES ← NEW
+// NOTIFICATION PREFERENCES
 // ═══════════════════════════════════════════
 router.get('/notification-preferences', protect, getNotificationPreferences);
 router.patch('/notification-preferences', protect, updateNotificationPreferences);
