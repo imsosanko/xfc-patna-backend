@@ -3168,7 +3168,6 @@ const getDateRangeForLeaderboard = async (range, from, to) => {
     startDate = new Date(now.getFullYear(), 0, 1);
     endDate = new Date(now.getFullYear() + 1, 0, 1);
   } else if (range === 'all') {
-    // ✅ FIX: Pehli activity ka month dhundo, 2020 nahi
     const firstActivity = await Activity.findOne()
       .sort({ submitted_at: 1 })
       .select('month')
@@ -3182,9 +3181,10 @@ const getDateRangeForLeaderboard = async (range, from, to) => {
     }
     endDate = new Date(now.getFullYear(), now.getMonth() + 1, 1);
   } else if (range === 'manual' && from && to) {
+    // ✅ FIX #1: setDate instead of setMonth (avoid +1 month bug)
     startDate = new Date(from);
     endDate = new Date(to);
-    endDate.setMonth(endDate.getMonth() + 1);
+    endDate.setDate(endDate.getDate() + 1);
   } else {
     startDate = new Date(now.getFullYear(), now.getMonth(), 1);
     endDate = new Date(now.getFullYear(), now.getMonth() + 1, 1);
@@ -3210,6 +3210,14 @@ const getAdminLeaderboard = async (req, res) => {
   try {
     const { range = 'month', from, to } = req.query;
 
+    // ✅ FIX #4: Manual range guard
+    if (range === 'manual' && (!from || !to)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Manual range requires from and to dates',
+      });
+    }
+
     const { startDate, endDate } = await getDateRangeForLeaderboard(range, from, to);
     const months = buildMonthsList(startDate, endDate);
 
@@ -3227,7 +3235,7 @@ const getAdminLeaderboard = async (req, res) => {
         },
       },
       { $sort: { total_points: -1 } },
-      { $limit: 50 },
+      { $limit: 1000 },
     ]);
 
     const totalMonths = months.length || 1;
@@ -3313,13 +3321,17 @@ const getMemberActivitiesReport = async (req, res) => {
       }
     }
 
-    const activities = await Activity.find(query)
-      .sort({ submitted_at: -1 })
-      .limit(500)
-      .lean();
+    // ✅ FIX #2: Accurate stats using countDocuments
+    const [activities, totalCount] = await Promise.all([
+      Activity.find(query)
+        .sort({ submitted_at: -1 })
+        .limit(2000)
+        .lean(),
+      Activity.countDocuments(query),
+    ]);
 
     const stats = {
-      total: activities.length,
+      total: totalCount,
       approved: activities.filter((a) => a.status === 'APPROVED').length,
       rejected: activities.filter((a) => a.status === 'REJECTED').length,
       pending: activities.filter((a) => a.status === 'PENDING').length,
@@ -3413,6 +3425,14 @@ const exportMemberActivities = async (req, res) => {
     const profile = await MemberProfile.findOne({ user_id: id }).lean();
     const query = { member_id: id };
 
+    // ✅ FIX #3: Manual range guard
+    if (range === 'manual' && (!from || !to)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Manual range requires from and to dates (YYYY-MM-DD)',
+      });
+    }
+
     if (range !== 'all') {
       const now = new Date();
       let startDate = null;
@@ -3421,7 +3441,7 @@ const exportMemberActivities = async (req, res) => {
       else if (range === '6m') startDate = new Date(now.getFullYear(), now.getMonth() - 5, 1);
       else if (range === '9m') startDate = new Date(now.getFullYear(), now.getMonth() - 8, 1);
       else if (range === '12m') startDate = new Date(now.getFullYear(), now.getMonth() - 11, 1);
-      else if (range === 'manual' && from) startDate = new Date(from);
+      else if (range === 'manual' && from && to) startDate = new Date(from);
 
       if (startDate) {
         const startStr = `${startDate.getFullYear()}-${String(startDate.getMonth() + 1).padStart(2, '0')}`;
@@ -3486,6 +3506,14 @@ const exportLeaderboard = async (req, res) => {
   try {
     const { range = 'month', from, to, format } = req.query;
 
+    // ✅ FIX #5: Manual range guard
+    if (range === 'manual' && (!from || !to)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Manual range requires from and to dates',
+      });
+    }
+
     const { startDate, endDate } = await getDateRangeForLeaderboard(range, from, to);
     const months = buildMonthsList(startDate, endDate);
 
@@ -3503,7 +3531,7 @@ const exportLeaderboard = async (req, res) => {
         },
       },
       { $sort: { total_points: -1 } },
-      { $limit: 200 },
+      { $limit: 1000 },
     ]);
 
     const totalMonths = months.length || 1;

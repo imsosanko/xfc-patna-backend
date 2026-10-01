@@ -1,5 +1,6 @@
 const User = require('../models/User');
 const MonthlyScore = require('../models/MonthlyScore');
+const MemberProfile = require('../models/MemberProfile');
 const { getUserProfilePhoto } = require('../services/telegramBot.service');
 
 // Helper: Full name banao
@@ -40,115 +41,233 @@ exports.getUserProfile = async (req, res) => {
 
 // ═══════════════════════════════════════════
 // GET LEADERBOARD (Points-based)
+// Supports: ?range=month (default) | ?range=all
 // ═══════════════════════════════════════════
 exports.getLeaderboard = async (req, res) => {
   try {
+    const { range = 'month' } = req.query;
     const currentMonth = new Date().toISOString().slice(0, 7);
-    const scores = await MonthlyScore.find({ month: currentMonth })
-      .sort({ total_points: -1 })
-      .limit(10)
-      .populate('member_id', 'first_name last_name telegram_username profile_photo_url role badges admin_badges');
 
-    const leaderboard = scores.map((score, index) => {
-      const user = score.member_id;
+    let leaderboard;
 
-      const userBadges = (user?.badges || [])
-        .sort((a, b) => (b.streak_days || 0) - (a.streak_days || 0))
-        .slice(0, 3)
-        .map((b) => ({
-          code: b.code,
-          emoji: b.emoji,
-          title: b.title,
-        }));
+    if (range === 'all') {
+      // ⬇️ ALL TIME — saare months aggregate karo
+      const scores = await MonthlyScore.aggregate([
+        {
+          $group: {
+            _id: '$member_id',
+            total_points: { $sum: '$total_points' },
+            verified_activities: { $sum: '$verified_activities' },
+            active_days: { $sum: '$active_days' },
+            longest_streak: { $max: '$longest_streak' },
+            current_streak: { $max: '$current_streak' },
+          },
+        },
+        { $sort: { total_points: -1 } },
+        { $limit: 100 },
+      ]);
 
-      const userAdminBadges = (user?.admin_badges || [])
-        .slice(0, 3)
-        .map((b) => ({
-          code: b.code,
-          emoji: b.emoji,
-          title: b.title,
-          color: b.color,
-        }));
+      const memberIds = scores.map((s) => s._id);
+      const users = await User.find({ _id: { $in: memberIds } })
+        .select('first_name last_name telegram_username profile_photo_url role badges admin_badges')
+        .lean();
+      const profiles = await MemberProfile.find({ user_id: { $in: memberIds } }).lean();
 
-      return {
-        rank: index + 1,
-        name: getFullName(user),
-        username: user?.telegram_username || 'unknown',
-        avatarUrl: user?.profile_photo_url || '',
-        role: user?.role || 'MEMBER',
-        badges: userBadges,
-        admin_badges: userAdminBadges,
-        points: score.total_points,
-      };
-    });
+      const userMap = Object.fromEntries(users.map((u) => [String(u._id), u]));
+      const profileMap = Object.fromEntries(profiles.map((p) => [String(p.user_id), p]));
+
+      leaderboard = scores
+        .map((s, index) => {
+          const user = userMap[String(s._id)];
+          const profile = profileMap[String(s._id)];
+          if (!user) return null;
+
+          const userBadges = (user.badges || [])
+            .sort((a, b) => (b.streak_days || 0) - (a.streak_days || 0))
+            .slice(0, 3)
+            .map((b) => ({ code: b.code, emoji: b.emoji, title: b.title }));
+
+          const userAdminBadges = (user.admin_badges || [])
+            .slice(0, 3)
+            .map((b) => ({ code: b.code, emoji: b.emoji, title: b.title, color: b.color }));
+
+          return {
+            rank: index + 1,
+            member_id: s._id,
+            name: profile?.full_name || getFullName(user),
+            username: user.telegram_username || 'unknown',
+            avatarUrl: user.profile_photo_url || '',
+            role: user.role || 'MEMBER',
+            badges: userBadges,
+            admin_badges: userAdminBadges,
+            points: Math.round(s.total_points * 100) / 100,
+            verified_activities: s.verified_activities || 0,
+            active_days: s.active_days || 0,
+            longest_streak: s.longest_streak || 0,
+            current_streak: s.current_streak || 0,
+          };
+        })
+        .filter(Boolean);
+    } else {
+      // ⬇️ THIS MONTH (default)
+      const scores = await MonthlyScore.find({ month: currentMonth })
+        .sort({ total_points: -1 })
+        .limit(100)
+        .populate('member_id', 'first_name last_name telegram_username profile_photo_url role badges admin_badges');
+
+      leaderboard = scores.map((score, index) => {
+        const user = score.member_id;
+
+        const userBadges = (user?.badges || [])
+          .sort((a, b) => (b.streak_days || 0) - (a.streak_days || 0))
+          .slice(0, 3)
+          .map((b) => ({ code: b.code, emoji: b.emoji, title: b.title }));
+
+        const userAdminBadges = (user?.admin_badges || [])
+          .slice(0, 3)
+          .map((b) => ({ code: b.code, emoji: b.emoji, title: b.title, color: b.color }));
+
+        return {
+          rank: index + 1,
+          member_id: user?._id || null,
+          name: getFullName(user),
+          username: user?.telegram_username || 'unknown',
+          avatarUrl: user?.profile_photo_url || '',
+          role: user?.role || 'MEMBER',
+          badges: userBadges,
+          admin_badges: userAdminBadges,
+          points: Math.round(score.total_points * 100) / 100,
+          verified_activities: score.verified_activities || 0,
+          active_days: score.active_days || 0,
+          longest_streak: score.longest_streak || 0,
+          current_streak: score.current_streak || 0,
+        };
+      });
+    }
 
     res.json(leaderboard);
   } catch (error) {
+    console.error('getLeaderboard error:', error);
     res.status(500).json({ message: error.message });
   }
 };
 
 // ═══════════════════════════════════════════
 // GET STREAK LEADERBOARD
+// Supports: ?range=month (default) | ?range=all
 // ═══════════════════════════════════════════
 exports.getStreakLeaderboard = async (req, res) => {
   try {
+    const { range = 'month' } = req.query;
     const currentMonth = new Date().toISOString().slice(0, 7);
 
-    const scores = await MonthlyScore.find({
-      month: currentMonth,
-      longest_streak: { $gt: 0 },
-    })
-      .sort({ longest_streak: -1, current_streak: -1 })
-      .limit(20)
-      .populate('member_id', 'first_name last_name telegram_username profile_photo_url role badges admin_badges')
-      .lean();
+    let leaderboard;
 
-    const leaderboard = scores
-      .filter((s) => s.member_id)
-      .map((score, index) => {
-        const user = score.member_id;
+    if (range === 'all') {
+      // ⬇️ ALL TIME — max streak across all months
+      const scores = await MonthlyScore.aggregate([
+        {
+          $group: {
+            _id: '$member_id',
+            longest_streak: { $max: '$longest_streak' },
+            current_streak: { $max: '$current_streak' },
+            active_days: { $sum: '$active_days' },
+          },
+        },
+        { $match: { longest_streak: { $gt: 0 } } },
+        { $sort: { longest_streak: -1, current_streak: -1 } },
+        { $limit: 100 },
+      ]);
 
-        const userBadges = (user.badges || [])
-          .sort((a, b) => (b.streak_days || 0) - (a.streak_days || 0))
-          .slice(0, 3)
-          .map((b) => ({
-            code: b.code,
-            emoji: b.emoji,
-            title: b.title,
-          }));
+      const memberIds = scores.map((s) => s._id);
+      const users = await User.find({ _id: { $in: memberIds } })
+        .select('first_name last_name telegram_username profile_photo_url role badges admin_badges')
+        .lean();
+      const profiles = await MemberProfile.find({ user_id: { $in: memberIds } }).lean();
 
-        const userAdminBadges = (user.admin_badges || [])
-          .slice(0, 3)
-          .map((b) => ({
-            code: b.code,
-            emoji: b.emoji,
-            title: b.title,
-            color: b.color,
-          }));
+      const userMap = Object.fromEntries(users.map((u) => [String(u._id), u]));
+      const profileMap = Object.fromEntries(profiles.map((p) => [String(p.user_id), p]));
 
-        return {
-          rank: index + 1,
-          name: getFullName(user),
-          username: user.telegram_username || 'unknown',
-          avatarUrl: user.profile_photo_url || '',
-          role: user.role || 'MEMBER',
-          current_streak: score.current_streak || 0,
-          longest_streak: score.longest_streak || 0,
-          active_days: score.active_days || 0,
-          badges: userBadges,
-          admin_badges: userAdminBadges,
-        };
-      });
+      leaderboard = scores
+        .map((s, index) => {
+          const user = userMap[String(s._id)];
+          const profile = profileMap[String(s._id)];
+          if (!user) return null;
+
+          const userBadges = (user.badges || [])
+            .sort((a, b) => (b.streak_days || 0) - (a.streak_days || 0))
+            .slice(0, 3)
+            .map((b) => ({ code: b.code, emoji: b.emoji, title: b.title }));
+
+          const userAdminBadges = (user.admin_badges || [])
+            .slice(0, 3)
+            .map((b) => ({ code: b.code, emoji: b.emoji, title: b.title, color: b.color }));
+
+          return {
+            rank: index + 1,
+            member_id: s._id,
+            name: profile?.full_name || getFullName(user),
+            username: user.telegram_username || 'unknown',
+            avatarUrl: user.profile_photo_url || '',
+            role: user.role || 'MEMBER',
+            current_streak: s.current_streak || 0,
+            longest_streak: s.longest_streak || 0,
+            active_days: s.active_days || 0,
+            badges: userBadges,
+            admin_badges: userAdminBadges,
+          };
+        })
+        .filter(Boolean);
+    } else {
+      // ⬇️ THIS MONTH
+      const scores = await MonthlyScore.find({
+        month: currentMonth,
+        longest_streak: { $gt: 0 },
+      })
+        .sort({ longest_streak: -1, current_streak: -1 })
+        .limit(100)
+        .populate('member_id', 'first_name last_name telegram_username profile_photo_url role badges admin_badges')
+        .lean();
+
+      leaderboard = scores
+        .filter((s) => s.member_id)
+        .map((score, index) => {
+          const user = score.member_id;
+
+          const userBadges = (user.badges || [])
+            .sort((a, b) => (b.streak_days || 0) - (a.streak_days || 0))
+            .slice(0, 3)
+            .map((b) => ({ code: b.code, emoji: b.emoji, title: b.title }));
+
+          const userAdminBadges = (user.admin_badges || [])
+            .slice(0, 3)
+            .map((b) => ({ code: b.code, emoji: b.emoji, title: b.title, color: b.color }));
+
+          return {
+            rank: index + 1,
+            member_id: user._id,
+            name: getFullName(user),
+            username: user.telegram_username || 'unknown',
+            avatarUrl: user.profile_photo_url || '',
+            role: user.role || 'MEMBER',
+            current_streak: score.current_streak || 0,
+            longest_streak: score.longest_streak || 0,
+            active_days: score.active_days || 0,
+            badges: userBadges,
+            admin_badges: userAdminBadges,
+          };
+        });
+    }
 
     res.json(leaderboard);
   } catch (error) {
+    console.error('getStreakLeaderboard error:', error);
     res.status(500).json({ message: error.message });
   }
 };
 
 // ═══════════════════════════════════════════
-// REFRESH MY PROFILE PHOTO ⬅️ NEW
+// REFRESH MY PROFILE PHOTO
 // ═══════════════════════════════════════════
 exports.refreshMyPhoto = async (req, res) => {
   try {
