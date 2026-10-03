@@ -595,25 +595,32 @@ const listActivities = async (req, res) => {
       Activity.countDocuments(query),
     ]);
 
-    // ✅ NEW: Instagram-only detection
-    const pairs = [
-      ...new Set(activities.map((a) => `${a.member_id}|${a.date}`)),
+        // ✅ FIXED: Instagram-only detection (member_id is populated object)
+    const memberDatePairs = activities.map((a) => ({
+      memberId: String(a.member_id?._id || a.member_id),
+      date: a.date,
+    }));
+
+    const uniquePairs = [
+      ...new Map(
+        memberDatePairs.map((p) => [`${p.memberId}|${p.date}`, p])
+      ).values(),
     ];
 
     const dayMap = {};
-    if (pairs.length > 0) {
+    if (uniquePairs.length > 0) {
       const dayActivities = await Activity.find({
-        $or: pairs.map((p) => {
-          const [member_id, date] = p.split('|');
-          return { member_id, date };
-        }),
+        $or: uniquePairs.map((p) => ({
+          member_id: p.memberId,
+          date: p.date,
+        })),
         status: { $in: ['PENDING', 'APPROVED'] },
       })
         .select('member_id date platform')
         .lean();
 
       dayActivities.forEach((a) => {
-        const key = `${a.member_id}|${a.date}`;
+        const key = `${String(a.member_id)}|${a.date}`;
         if (!dayMap[key]) dayMap[key] = [];
         dayMap[key].push(a);
       });
@@ -621,9 +628,10 @@ const listActivities = async (req, res) => {
 
     const enriched = await Promise.all(
       activities.map(async (a) => {
-        const profile = await MemberProfile.findOne({ user_id: a.member_id });
+         const memberIdStr = String(a.member_id?._id || a.member_id);
+        const profile = await MemberProfile.findOne({ user_id: memberIdStr });
 
-        const key = `${a.member_id}|${a.date}`;
+        const key = `${memberIdStr}|${a.date}`;
         const dayActs = dayMap[key] || [];
         const instagram_only =
           dayActs.length > 0 &&
