@@ -11,21 +11,60 @@ const {
 } = require('../services/points.service');
 
 // ═══════════════════════════════════════════
-// HELPER: Round to 2 decimals
+// Round to 2 decimals
 // ═══════════════════════════════════════════
 const round2 = (n) => Math.round(n * 100) / 100;
 
 // ═══════════════════════════════════════════
-// HELPER: Daily points based on post count
-// 1 post   → 1 pt
-// 2 posts  → 2 pts
-// 3+ posts → 3.33 pts (max cap per day)
+// ✅ NEW: Analyze activities by platform
 // ═══════════════════════════════════════════
-const calculateDailyPoints = (postCount) => {
-  if (!postCount || postCount <= 0) return 0;
-  if (postCount === 1) return 1;
-  if (postCount === 2) return 2;
-  return 3.33;
+const analyzeByPlatform = (activities) => {
+  const counts = { X: 0, Instagram: 0, Facebook: 0, Other: 0 };
+
+  activities.forEach((act) => {
+    const p = (act.platform || '').trim();
+    if (p === 'X' || p === 'Twitter') counts.X++;
+    else if (p === 'Instagram') counts.Instagram++;
+    else if (p === 'Facebook') counts.Facebook++;
+    else counts.Other++;
+  });
+
+  return counts;
+};
+
+// ═══════════════════════════════════════════
+// ✅ NEW: Calculate valid daily points
+// Rule:
+//   - Same old: 1 post = 1pt, 2 = 2pt, 3+ = 3.33pt
+//   - NEW: Agar saare posts Instagram ke → 0 points
+//          (min 1 non-Instagram post required — X ya Facebook)
+// ═══════════════════════════════════════════
+const calculateDailyPoints = (activities) => {
+  const total = activities.length;
+
+  if (total === 0) {
+    return { points: 0, valid: false, reason: 'No activities', counts: null };
+  }
+
+  const counts = analyzeByPlatform(activities);
+
+  // ❌ All Instagram → invalid
+  if (counts.Instagram === total) {
+    return {
+      points: 0,
+      valid: false,
+      reason: 'All posts are Instagram — at least 1 non-Instagram required',
+      counts,
+    };
+  }
+
+  // ✅ Same old rule
+  let points = 0;
+  if (total === 1) points = 1;
+  else if (total === 2) points = 2;
+  else points = 3.33;
+
+  return { points, valid: true, reason: '', counts };
 };
 
 /**
@@ -48,11 +87,7 @@ const processDay = async (dateStr) => {
     if (alreadyProcessed) {
       console.log(`⚠️  Already processed: ${dateStr}`);
       console.log(`   Skipping to avoid duplicate points.\n`);
-      return {
-        success: true,
-        skipped: true,
-        message: 'Already processed',
-      };
+      return { success: true, skipped: true, message: 'Already processed' };
     }
 
     const monthStr = dateStr.substring(0, 7);
@@ -66,18 +101,14 @@ const processDay = async (dateStr) => {
     const activities = await Activity.find({
       date: dateStr,
       status: 'APPROVED',
-    });
+    }).lean();
 
     console.log(`📊 Approved activities found: ${activities.length}`);
 
     if (activities.length === 0) {
       console.log(`ℹ️  No approved activities for ${dateStr}. Skipping.`);
       await SystemSetting.create({ key: lockKey, value: true });
-      return {
-        success: true,
-        processed: 0,
-        message: 'No approved activities',
-      };
+      return { success: true, processed: 0, message: 'No approved activities' };
     }
 
     // ═══════════════════════════════════════════
@@ -105,24 +136,32 @@ const processDay = async (dateStr) => {
     // STEP 4: Har member ke liye process karo
     // ═══════════════════════════════════════════
     let processedCount = 0;
+    let invalidDays = 0;
 
     for (const [memberId, data] of memberMap.entries()) {
-      const approvedCount = data.activities.length;
+      // ✅ NEW: Apply new rule
+      const dayResult = calculateDailyPoints(data.activities);
+
+      if (!dayResult.valid) {
+        invalidDays++;
+        console.log(
+          `⚠️  Member ${memberId}: ${dayResult.reason} | counts:`,
+          dayResult.counts
+        );
+      }
 
       // Daily Summary update
       await DailySummary.findOneAndUpdate(
         { member_id: data.member_id, date: dateStr },
         {
           $set: {
-            approved: approvedCount,
+            approved: data.activities.length,
             platform_counts: data.platforms,
             day_completed: true,
             processing_status: 'PROCESSED',
-            daily_points: calculateDailyPoints(approvedCount),
+            daily_points: dayResult.points,
           },
-          $setOnInsert: {
-            month: monthStr,
-          },
+          $setOnInsert: { month: monthStr },
         },
         { upsert: true }
       );
@@ -160,56 +199,52 @@ const processDay = async (dateStr) => {
       monthlyScore.active_days = activeDates.length;
 
       // ═══════════════════════════════════════════
-      // Calculate regular_points from daily post counts
-      // Rule: 1 post = 1pt | 2 posts = 2pts | 3+ posts = 3.33pts (daily cap)
+      // ✅ NEW: Calculate regular_points using new rule
       // ═══════════════════════════════════════════
       const monthActivities = await Activity.find({
         member_id: data.member_id,
         month: monthStr,
         status: 'APPROVED',
-      })
-        .select('date')
-        .lean();
+      }).lean();
 
       // Group by date
-      const dateCountMap = {};
+      const dateActivitiesMap = {};
       monthActivities.forEach((a) => {
-        dateCountMap[a.date] = (dateCountMap[a.date] || 0) + 1;
+        if (!dateActivitiesMap[a.date]) dateActivitiesMap[a.date] = [];
+        dateActivitiesMap[a.date].push(a);
       });
 
-      // Sum daily points
+      // Sum daily points (skip invalid Instagram-only days)
       let regularPoints = 0;
-      Object.values(dateCountMap).forEach((count) => {
-        regularPoints += calculateDailyPoints(count);
+      let validDaysCount = 0;
+
+      Object.values(dateActivitiesMap).forEach((dayActivities) => {
+        const result = calculateDailyPoints(dayActivities);
+        if (result.valid) {
+          validDaysCount++;
+          regularPoints += result.points;
+        }
       });
+
       regularPoints = round2(regularPoints);
 
       // ═══════════════════════════════════════════
-      // BONUS LOGIC
+      // BONUS LOGIC — Full month valid days pe 100
       // ═══════════════════════════════════════════
-      // Agar member ne poora month (har din) kam se kam 1 post kiya
-      // toh total 100 points guarantee karo
-      // Warna sirf earned points
-      const totalActiveDates = Object.keys(dateCountMap).length;
       let bonusPoints = 0;
 
-      if (totalActiveDates === totalDaysInMonth) {
-        // Full month active → 100 points guaranteed
+      if (validDaysCount === totalDaysInMonth) {
         bonusPoints = round2(100 - regularPoints);
-        if (bonusPoints < 0) bonusPoints = 0; // safety
+        if (bonusPoints < 0) bonusPoints = 0;
       }
 
-      // Cap regular + bonus at 100 (31-day month mein 103.23 → 100)
       let totalRegularWithBonus = round2(regularPoints + bonusPoints);
-      if (totalRegularWithBonus > 100) {
-        totalRegularWithBonus = 100;
-      }
+      if (totalRegularWithBonus > 100) totalRegularWithBonus = 100;
 
       monthlyScore.regular_points = totalRegularWithBonus;
-      // Bonus ko alag store karo (audit ke liye)
       monthlyScore.bonus_points = bonusPoints;
 
-      // Total = regular (with bonus) + special + meetup + manual
+      // Total
       const totalPoints = round2(
         totalRegularWithBonus +
           (monthlyScore.special_points || 0) +
@@ -247,26 +282,26 @@ const processDay = async (dateStr) => {
         processed_at: new Date(),
         members_processed: processedCount,
         activities_processed: activities.length,
+        invalid_days: invalidDays,
       },
     });
 
     console.log(`✅ Processed ${processedCount} members`);
     console.log(`✅ Processed ${activities.length} activities`);
+    console.log(`⚠️  Invalid days (all Instagram): ${invalidDays}`);
     console.log('═══════════════════════════════════════════\n');
 
     return {
       success: true,
       processed: processedCount,
       activities: activities.length,
+      invalid_days: invalidDays,
       message: 'Day processed successfully',
     };
   } catch (error) {
     console.error(`❌ Processing error for ${dateStr}:`, error.message);
     console.error(error.stack);
-    return {
-      success: false,
-      error: error.message,
-    };
+    return { success: false, error: error.message };
   }
 };
 
@@ -280,19 +315,14 @@ const startMidnightJob = () => {
     '0 0 * * *',
     async () => {
       console.log('\n🕛 MIDNIGHT CRON JOB TRIGGERED');
-      console.log(`📅 Time: ${new Date().toISOString()}`);
-      console.log(
-        `🇮🇳 IST Time: ${new Date().toLocaleString('en-IN', {
-          timeZone: 'Asia/Kolkata',
-        })}`
-      );
+      console.log(`🇮🇳 IST Time: ${new Date().toLocaleString('en-IN', {
+        timeZone: 'Asia/Kolkata',
+      })}`);
 
       const yesterday = getYesterdayIST();
       await processDay(yesterday);
     },
-    {
-      timezone: 'Asia/Kolkata',
-    }
+    { timezone: 'Asia/Kolkata' }
   );
 
   console.log('✅ Midnight cron job scheduled (12:00 AM Asia/Kolkata)');
