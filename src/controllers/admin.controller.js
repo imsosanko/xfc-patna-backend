@@ -595,9 +595,40 @@ const listActivities = async (req, res) => {
       Activity.countDocuments(query),
     ]);
 
+    // ✅ NEW: Instagram-only detection
+    const pairs = [
+      ...new Set(activities.map((a) => `${a.member_id}|${a.date}`)),
+    ];
+
+    const dayMap = {};
+    if (pairs.length > 0) {
+      const dayActivities = await Activity.find({
+        $or: pairs.map((p) => {
+          const [member_id, date] = p.split('|');
+          return { member_id, date };
+        }),
+        status: { $in: ['PENDING', 'APPROVED'] },
+      })
+        .select('member_id date platform')
+        .lean();
+
+      dayActivities.forEach((a) => {
+        const key = `${a.member_id}|${a.date}`;
+        if (!dayMap[key]) dayMap[key] = [];
+        dayMap[key].push(a);
+      });
+    }
+
     const enriched = await Promise.all(
       activities.map(async (a) => {
         const profile = await MemberProfile.findOne({ user_id: a.member_id });
+
+        const key = `${a.member_id}|${a.date}`;
+        const dayActs = dayMap[key] || [];
+        const instagram_only =
+          dayActs.length > 0 &&
+          dayActs.every((x) => x.platform === 'Instagram');
+
         return {
           id: a._id,
           activity_id: a.activity_id,
@@ -617,6 +648,7 @@ const listActivities = async (req, res) => {
           rejection_reason: a.rejection_reason,
           auto_verified: a.auto_verified || false,
           auto_verify_reason: a.auto_verify_reason || '',
+          instagram_only, // ✅ NEW
         };
       })
     );
@@ -633,6 +665,8 @@ const listActivities = async (req, res) => {
 const approveActivity = async (req, res) => {
   try {
     const { id } = req.params;
+    const { force } = req.query; // ✅ NEW: ?force=true to skip warning
+
     const activity = await Activity.findById(id);
     if (!activity) {
       return res.status(404).json({ success: false, error: 'Activity not found' });
@@ -645,6 +679,31 @@ const approveActivity = async (req, res) => {
           error: 'You cannot verify your own activity',
         });
       }
+    }
+
+    // ✅ NEW: Instagram-only check
+    const dayActivities = await Activity.find({
+      member_id: activity.member_id,
+      date: activity.date,
+      status: { $in: ['PENDING', 'APPROVED'] },
+    })
+      .select('platform')
+      .lean();
+
+    const instagram_only =
+      dayActivities.length > 0 &&
+      dayActivities.every((a) => a.platform === 'Instagram');
+
+    // Agar Instagram-only hai aur admin ne force nahi kiya → warning return
+    if (instagram_only && force !== 'true') {
+      return res.status(409).json({
+        success: false,
+        warning: true,
+        instagram_only: true,
+        message:
+          'This day has only Instagram submissions. Member will get 0 points for this day. Confirm to approve anyway.',
+        requires_confirmation: true,
+      });
     }
 
     activity.status = 'APPROVED';
@@ -684,7 +743,12 @@ const approveActivity = async (req, res) => {
       console.error('Activity approve notification failed:', notifErr.message);
     }
 
-    res.json({ success: true, activity });
+    res.json({
+      success: true,
+      activity,
+      warning_ignored: instagram_only, // ✅ NEW
+      instagram_only, // ✅ NEW
+    });
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
   }
@@ -757,11 +821,73 @@ const rejectActivity = async (req, res) => {
 // ═══════════════════════════════════════════
 const bulkApprove = async (req, res) => {
   try {
-    const { ids } = req.body;
+    const { ids, force } = req.body; // ✅ NEW: force flag
+
     if (!Array.isArray(ids) || ids.length === 0) {
       return res.status(400).json({ success: false, error: 'No IDs provided' });
     }
 
+    // ✅ NEW: Instagram-only check for all activities
+    const activities = await Activity.find({
+      _id: { $in: ids },
+      status: 'PENDING',
+    })
+      .select('member_id date platform')
+      .lean();
+
+    if (activities.length === 0) {
+      return res.status(404).json({
+        success: false,
+        error: 'No pending activities found for the given IDs',
+      });
+    }
+
+    // Group by member+date to detect Instagram-only days
+    const pairs = [...new Set(activities.map((a) => `${a.member_id}|${a.date}`))];
+
+    const dayMap = {};
+    if (pairs.length > 0) {
+      const dayActivities = await Activity.find({
+        $or: pairs.map((p) => {
+          const [member_id, date] = p.split('|');
+          return { member_id, date };
+        }),
+        status: { $in: ['PENDING', 'APPROVED'] },
+      })
+        .select('member_id date platform')
+        .lean();
+
+      dayActivities.forEach((a) => {
+        const key = `${a.member_id}|${a.date}`;
+        if (!dayMap[key]) dayMap[key] = [];
+        dayMap[key].push(a);
+      });
+    }
+
+    // Count Instagram-only activities
+    let instaOnlyCount = 0;
+    activities.forEach((a) => {
+      const key = `${a.member_id}|${a.date}`;
+      const dayActs = dayMap[key] || [];
+      const isInstaOnly =
+        dayActs.length > 0 && dayActs.every((x) => x.platform === 'Instagram');
+      if (isInstaOnly) instaOnlyCount++;
+    });
+
+    // Agar Instagram-only activities hain aur force nahi → warning
+    if (instaOnlyCount > 0 && force !== true) {
+      return res.status(409).json({
+        success: false,
+        warning: true,
+        instagram_only: true,
+        insta_count: instaOnlyCount,
+        total_count: activities.length,
+        message: `${instaOnlyCount} of ${activities.length} activities are Instagram-only. Members will get 0 points for those days. Confirm to approve anyway.`,
+        requires_confirmation: true,
+      });
+    }
+
+    // Approve all
     const result = await Activity.updateMany(
       { _id: { $in: ids }, status: 'PENDING' },
       {
@@ -773,7 +899,11 @@ const bulkApprove = async (req, res) => {
       }
     );
 
-    res.json({ success: true, modified: result.modifiedCount });
+    res.json({
+      success: true,
+      modified: result.modifiedCount,
+      instagram_only_count: instaOnlyCount, // ✅ NEW
+    });
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
   }
