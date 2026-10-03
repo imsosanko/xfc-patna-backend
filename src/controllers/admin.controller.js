@@ -640,7 +640,7 @@ const listActivities = async (req, res) => {
         return {
           id: a._id,
           activity_id: a.activity_id,
-          member_user_id: a.member_id?._id?.toString() || null,
+          member_user_id: memberIdStr,
           member_name: profile?.full_name || a.member_id?.first_name || 'Unknown',
           xiaomi_id: profile?.xiaomi_id || 'N/A',
           telegram_username: a.member_id?.telegram_username || '',
