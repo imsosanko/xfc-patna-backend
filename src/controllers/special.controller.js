@@ -373,26 +373,12 @@ const updateSpecialStatus = async (req, res) => {
       });
     }
 
-    if (status === 'OPEN') {
-      const now = new Date();
-      if (now < activity.start_date) {
-        return res.status(400).json({
-          success: false,
-          error: 'Cannot open before start date',
-        });
-      }
-      if (now > activity.end_date) {
-        return res.status(400).json({
-          success: false,
-          error: 'Cannot open after end date',
-        });
-      }
-    }
-
+    // ✅ Admin full control — koi date restriction nahi
     const previousStatus = activity.status;
     activity.status = status;
     await activity.save();
 
+    // Notify members when publishing (OPEN)
     if (status === 'OPEN' && previousStatus !== 'OPEN') {
       try {
         const members = await User.find({
@@ -778,7 +764,10 @@ const editMemberSubmission = async (req, res) => {
 // ═══════════════════════════════════════════
 const getMemberSpecialActivities = async (req, res) => {
   try {
-    const activities = await SpecialActivity.find({ status: 'OPEN' })
+    // ✅ Always visible — DRAFT chhod ke sab status dikhe
+    const activities = await SpecialActivity.find({
+      status: { $in: ['OPEN', 'PAUSED', 'CLOSED', 'LOCKED'] },
+    })
       .sort({ createdAt: -1 })
       .select('-created_by')
       .populate('linked_meetup_id', 'title date venue banner_url status');
@@ -832,20 +821,57 @@ const submitSpecialActivity = async (req, res) => {
       });
     }
 
-    if (activity.status !== 'OPEN') {
-      return res.status(400).json({
-        success: false,
-        error: 'Special activity is not open',
-      });
-    }
+// ✅ Status check
+if (activity.status !== 'OPEN') {
+  if (activity.status === 'PAUSED') {
+    return res.status(400).json({
+      success: false,
+      error: 'Submission is temporarily paused by admin',
+    });
+  }
+  if (activity.status === 'CLOSED') {
+    return res.status(400).json({
+      success: false,
+      error: 'Submission is closed',
+    });
+  }
+  if (activity.status === 'LOCKED') {
+    return res.status(400).json({
+      success: false,
+      error: 'Submission is locked',
+    });
+  }
+  return res.status(400).json({
+    success: false,
+    error: 'Special activity is not open for submission',
+  });
+}
 
-    const now = new Date();
-    if (now > activity.end_date) {
-      return res.status(400).json({
-        success: false,
-        error: 'Submission deadline has passed',
-      });
-    }
+const now = new Date();
+
+// ✅ Start date se pehle block
+if (now < activity.start_date) {
+  const startStr = new Date(activity.start_date).toLocaleString('en-IN', {
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    timeZone: 'Asia/Kolkata',
+  });
+  return res.status(400).json({
+    success: false,
+    error: `Submission opens on ${startStr}. Come back then!`,
+  });
+}
+
+// ✅ End date ke baad block
+if (now > activity.end_date) {
+  return res.status(400).json({
+    success: false,
+    error: 'Submission deadline has passed',
+  });
+}
 
     let submission = await SpecialSubmission.findOne({
       special_activity_id: id,
