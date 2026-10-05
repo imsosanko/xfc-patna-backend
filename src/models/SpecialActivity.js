@@ -14,6 +14,23 @@ const SpecialActivitySchema = new mongoose.Schema({
     type: String,
     default: '',
   },
+
+  // ═══════════════════════════════════════════
+  // ✅ NEW: ACTIVITY TYPE (3 options)
+  // ═══════════════════════════════════════════
+  activity_type: {
+    type: String,
+    enum: ['NORMAL', 'MEETUP_LAUNCH_LINKED', 'MEETUP_LAUNCH_LABEL'],
+    default: 'NORMAL',
+    index: true,
+  },
+  // Only used when activity_type = 'MEETUP_LAUNCH_LINKED'
+  linked_meetup_id: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Meetup',
+    default: null,
+  },
+
   start_date: {
     type: Date,
     required: true,
@@ -55,6 +72,8 @@ const SpecialActivitySchema = new mongoose.Schema({
 
   // ═══════════════════════════════════════════
   // REQUIREMENTS (Per-platform tasks)
+  // is_required = true → min platform (admin warning on approval)
+  // required_count = custom (admin sets)
   // ═══════════════════════════════════════════
   requirements: [
     {
@@ -64,6 +83,18 @@ const SpecialActivitySchema = new mongoose.Schema({
       is_required: { type: Boolean, default: true },
     },
   ],
+
+  // ═══════════════════════════════════════════
+  // REMINDER FLAGS (prevent duplicate notifications)
+  // ═══════════════════════════════════════════
+  reminder_start_sent: {
+    type: Boolean,
+    default: false,
+  },
+  reminder_end_sent: {
+    type: Boolean,
+    default: false,
+  },
 
   // ═══════════════════════════════════════════
   // DENORMALIZED STATS (for speed)
@@ -89,5 +120,6 @@ const SpecialActivitySchema = new mongoose.Schema({
 // Query indexes
 SpecialActivitySchema.index({ status: 1, end_date: -1 });
 SpecialActivitySchema.index({ start_date: -1 });
+SpecialActivitySchema.index({ activity_type: 1, status: 1 });
 
 module.exports = mongoose.model('SpecialActivity', SpecialActivitySchema);

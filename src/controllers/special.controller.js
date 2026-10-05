@@ -3,6 +3,7 @@ const SpecialSubmission = require('../models/SpecialSubmission');
 const MonthlyScore = require('../models/MonthlyScore');
 const MemberProfile = require('../models/MemberProfile');
 const User = require('../models/User');
+const Meetup = require('../models/Meetup');
 const AuditLog = require('../models/AuditLog');
 const notificationService = require('../services/notification.service');
 const {
@@ -15,8 +16,6 @@ const { formatDateIST } = require('../services/points.service');
 
 // ═══════════════════════════════════════════
 // HELPER: Calculate points per item
-// Total special_points ko items ke beech equally divide karo
-// Sirf required items ke liye points count honge
 // ═══════════════════════════════════════════
 const calcItemPoints = (activity, totalItems) => {
   if (!totalItems || totalItems === 0) return 0;
@@ -25,8 +24,6 @@ const calcItemPoints = (activity, totalItems) => {
     0
   );
   if (totalRequired === 0) return 0;
-
-  // Points per individual URL = special_points / total required URLs
   return Math.round((activity.special_points / totalRequired) * 100) / 100;
 };
 
@@ -52,6 +49,40 @@ const recalcSubmissionStatus = (submission) => {
 };
 
 // ═══════════════════════════════════════════
+// ✅ NEW HELPER: Check compliance with min requirements
+// Returns: { compliant: Boolean, missing: [] }
+// ═══════════════════════════════════════════
+const checkCompliance = (activity, submission) => {
+  const requiredReqs = activity.requirements.filter((r) => r.is_required);
+  const missing = [];
+
+  requiredReqs.forEach((req) => {
+    // Count approved items for this platform+type
+    const approvedCount = submission.items.filter(
+      (item) =>
+        item.platform === req.platform &&
+        item.activity_type === req.activity_type &&
+        item.status === 'APPROVED'
+    ).length;
+
+    if (approvedCount < req.required_count) {
+      missing.push({
+        platform: req.platform,
+        activity_type: req.activity_type,
+        required: req.required_count,
+        approved: approvedCount,
+        short_by: req.required_count - approvedCount,
+      });
+    }
+  });
+
+  return {
+    compliant: missing.length === 0,
+    missing,
+  };
+};
+
+// ═══════════════════════════════════════════
 // ADMIN: CREATE SPECIAL ACTIVITY
 // ═══════════════════════════════════════════
 const createSpecialActivity = async (req, res) => {
@@ -68,6 +99,8 @@ const createSpecialActivity = async (req, res) => {
       member_editing_allowed,
       count_toward_leaderboard,
       requirements,
+      activity_type,
+      linked_meetup_id,
     } = req.body;
 
     if (!title || !start_date || !end_date) {
@@ -93,6 +126,28 @@ const createSpecialActivity = async (req, res) => {
       }
     }
 
+    // Validate activity type + linked meetup
+    const validTypes = ['NORMAL', 'MEETUP_LAUNCH_LINKED', 'MEETUP_LAUNCH_LABEL'];
+    const finalType = validTypes.includes(activity_type) ? activity_type : 'NORMAL';
+
+    let finalMeetupId = null;
+    if (finalType === 'MEETUP_LAUNCH_LINKED') {
+      if (!linked_meetup_id) {
+        return res.status(400).json({
+          success: false,
+          error: 'Meetup must be selected for linked launch',
+        });
+      }
+      const meetupExists = await Meetup.findById(linked_meetup_id);
+      if (!meetupExists) {
+        return res.status(404).json({
+          success: false,
+          error: 'Selected meetup not found',
+        });
+      }
+      finalMeetupId = linked_meetup_id;
+    }
+
     const activity = await SpecialActivity.create({
       title: title.trim(),
       description: description || '',
@@ -104,6 +159,8 @@ const createSpecialActivity = async (req, res) => {
       approval_required: approval_required !== false,
       member_editing_allowed: member_editing_allowed === true,
       count_toward_leaderboard: count_toward_leaderboard !== false,
+      activity_type: finalType,
+      linked_meetup_id: finalMeetupId,
       requirements: requirements.map((r) => ({
         platform: r.platform,
         activity_type: r.activity_type,
@@ -119,7 +176,7 @@ const createSpecialActivity = async (req, res) => {
       action: 'CREATE_SPECIAL_ACTIVITY',
       target_type: 'SPECIAL_ACTIVITY',
       target_id: activity._id,
-      new_value: { title: activity.title },
+      new_value: { title: activity.title, activity_type: finalType },
     });
 
     res.json({ success: true, activity });
@@ -140,7 +197,8 @@ const listSpecialActivities = async (req, res) => {
 
     const activities = await SpecialActivity.find(query)
       .sort({ createdAt: -1 })
-      .populate('created_by', 'name email');
+      .populate('created_by', 'name email')
+      .populate('linked_meetup_id', 'title date venue banner_url');
 
     const enriched = await Promise.all(
       activities.map(async (act) => {
@@ -172,15 +230,14 @@ const listSpecialActivities = async (req, res) => {
 };
 
 // ═══════════════════════════════════════════
-// ADMIN: GET SPECIAL ACTIVITY DETAILS (with submissions)
+// ADMIN: GET SPECIAL ACTIVITY DETAILS
 // ═══════════════════════════════════════════
 const getSpecialActivity = async (req, res) => {
   try {
     const { id } = req.params;
-    const activity = await SpecialActivity.findById(id).populate(
-      'created_by',
-      'name email'
-    );
+    const activity = await SpecialActivity.findById(id)
+      .populate('created_by', 'name email')
+      .populate('linked_meetup_id', 'title date venue banner_url');
 
     if (!activity) {
       return res.status(404).json({
@@ -198,6 +255,10 @@ const getSpecialActivity = async (req, res) => {
     const enrichedSubmissions = await Promise.all(
       submissions.map(async (sub) => {
         const profile = await MemberProfile.findOne({ user_id: sub.member_id });
+
+        // ✅ NEW: Compute compliance
+        const compliance = checkCompliance(activity, sub);
+
         return {
           id: sub._id,
           member_id: sub.member_id?._id,
@@ -215,6 +276,10 @@ const getSpecialActivity = async (req, res) => {
           last_edited_by: sub.last_edited_by,
           last_edited_at: sub.last_edited_at,
           created_at: sub.createdAt,
+
+          // ✅ NEW: Compliance info for admin
+          is_compliant: compliance.compliant,
+          missing_requirements: compliance.missing,
         };
       })
     );
@@ -238,6 +303,33 @@ const updateSpecialActivity = async (req, res) => {
     const updates = req.body;
 
     delete updates.status;
+
+    // Validate activity_type
+    if (updates.activity_type) {
+      const validTypes = ['NORMAL', 'MEETUP_LAUNCH_LINKED', 'MEETUP_LAUNCH_LABEL'];
+      if (!validTypes.includes(updates.activity_type)) {
+        delete updates.activity_type;
+      }
+    }
+
+    // Validate linked meetup
+    if (updates.activity_type === 'MEETUP_LAUNCH_LINKED' && updates.linked_meetup_id) {
+      const meetupExists = await Meetup.findById(updates.linked_meetup_id);
+      if (!meetupExists) {
+        return res.status(404).json({
+          success: false,
+          error: 'Selected meetup not found',
+        });
+      }
+    }
+
+    // If type changed to non-linked, clear meetup
+    if (
+      updates.activity_type &&
+      updates.activity_type !== 'MEETUP_LAUNCH_LINKED'
+    ) {
+      updates.linked_meetup_id = null;
+    }
 
     const activity = await SpecialActivity.findByIdAndUpdate(
       id,
@@ -388,7 +480,7 @@ const deleteSpecialActivity = async (req, res) => {
 };
 
 // ═══════════════════════════════════════════
-// ADMIN: VERIFY SUBMISSION ITEM (Meetup-style)
+// ADMIN: VERIFY SUBMISSION ITEM
 // ═══════════════════════════════════════════
 const verifySubmissionItem = async (req, res) => {
   try {
@@ -429,9 +521,6 @@ const verifySubmissionItem = async (req, res) => {
     const item = submission.items[itemIdx];
     const previousStatus = item.status;
 
-    // ═══════════════════════════════════════════
-    // UPDATE ITEM STATUS
-    // ═══════════════════════════════════════════
     item.status = status;
     item.reviewed_at = new Date();
     item.reviewed_by = req.admin._id;
@@ -447,15 +536,8 @@ const verifySubmissionItem = async (req, res) => {
       item.points = 0;
     }
 
-    // ═══════════════════════════════════════════
-    // RECALCULATE OVERALL STATUS
-    // ═══════════════════════════════════════════
     submission.status = recalcSubmissionStatus(submission);
 
-    // ═══════════════════════════════════════════
-    // POINTS CALCULATION
-    // Total approved items ke points sum karo
-    // ═══════════════════════════════════════════
     const totalPoints = submission.items
       .filter((i) => i.status === 'APPROVED')
       .reduce((sum, i) => sum + (i.points || 0), 0);
@@ -465,10 +547,6 @@ const verifySubmissionItem = async (req, res) => {
 
     submission.points_awarded = totalPoints;
 
-    // ═══════════════════════════════════════════
-    // UPDATE MONTHLY SCORE
-    // Sirf delta add karo (agar points change hue)
-    // ═══════════════════════════════════════════
     if (pointsDelta !== 0 && activity.count_toward_leaderboard) {
       const month = formatDateIST().substring(0, 7);
 
@@ -490,9 +568,10 @@ const verifySubmissionItem = async (req, res) => {
 
     await submission.save();
 
-    // ═══════════════════════════════════════════
-    // NOTIFY MEMBER
-    // ═══════════════════════════════════════════
+    // ✅ NEW: Compliance check after approval
+    const compliance = checkCompliance(activity, submission);
+
+    // Notify member
     try {
       const member = await User.findById(submission.member_id);
       if (member && member.telegram_id) {
@@ -501,11 +580,19 @@ const verifySubmissionItem = async (req, res) => {
         const statusText =
           status === 'APPROVED' ? 'Approved' : status === 'REJECTED' ? 'Rejected' : 'Pending';
 
+        let complianceNote = '';
+        if (!compliance.compliant && status === 'APPROVED') {
+          const missingList = compliance.missing
+            .map((m) => `${m.platform} (${m.approved}/${m.required})`)
+            .join(', ');
+          complianceNote = `\n\n⚠️ *Still missing required items:*\n${missingList}`;
+        }
+
         const message = `${statusEmoji} *Special Activity — ${statusText}*\n\n*${activity.title}*\n\n📌 Item: ${item.platform} ${item.activity_type}\n🔗 ${item.url}\n${
           status === 'REJECTED' ? `\n❌ Reason: ${item.rejection_reason}` : ''
         }${
           status === 'APPROVED' ? `\n\n+${item.points} points awarded!` : ''
-        }`;
+        }${complianceNote}`;
 
         await notificationService.sendNotification({
           memberId: member._id,
@@ -543,6 +630,7 @@ const verifySubmissionItem = async (req, res) => {
       success: true,
       submission,
       points_delta: pointsDelta,
+      compliance, // ✅ NEW
     });
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
@@ -573,7 +661,6 @@ const bulkVerifyItems = async (req, res) => {
 
     const itemPoints = calcItemPoints(activity, submission.items.length);
 
-    // Update all pending items
     submission.items.forEach((item) => {
       if (item.status === 'PENDING') {
         item.status = status;
@@ -592,7 +679,6 @@ const bulkVerifyItems = async (req, res) => {
 
     submission.status = recalcSubmissionStatus(submission);
 
-    // Points recalc
     const totalPoints = submission.items
       .filter((i) => i.status === 'APPROVED')
       .reduce((sum, i) => sum + (i.points || 0), 0);
@@ -615,6 +701,9 @@ const bulkVerifyItems = async (req, res) => {
 
     await submission.save();
 
+    // ✅ NEW: Compliance check
+    const compliance = checkCompliance(activity, submission);
+
     await AuditLog.create({
       admin_id: req.admin._id,
       action: `SPECIAL_BULK_${status}`,
@@ -623,14 +712,19 @@ const bulkVerifyItems = async (req, res) => {
       new_value: { status, points_delta: pointsDelta },
     });
 
-    res.json({ success: true, submission, points_delta: pointsDelta });
+    res.json({
+      success: true,
+      submission,
+      points_delta: pointsDelta,
+      compliance, // ✅ NEW
+    });
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
   }
 };
 
 // ═══════════════════════════════════════════
-// ADMIN: EDIT MEMBER SUBMISSION (Override)
+// ADMIN: EDIT MEMBER SUBMISSION
 // ═══════════════════════════════════════════
 const editMemberSubmission = async (req, res) => {
   try {
@@ -699,7 +793,8 @@ const getMemberSpecialActivities = async (req, res) => {
   try {
     const activities = await SpecialActivity.find({ status: 'OPEN' })
       .sort({ createdAt: -1 })
-      .select('-created_by');
+      .select('-created_by')
+      .populate('linked_meetup_id', 'title date venue banner_url status');
 
     const enriched = await Promise.all(
       activities.map(async (act) => {
@@ -707,9 +802,17 @@ const getMemberSpecialActivities = async (req, res) => {
           special_activity_id: act._id,
           member_id: req.user._id,
         });
+
+        // ✅ NEW: For member, compute compliance too (so they know what's missing)
+        let compliance = null;
+        if (submission) {
+          compliance = checkCompliance(act, submission);
+        }
+
         return {
           ...act.toObject(),
           mySubmission: submission || null,
+          myCompliance: compliance,
         };
       })
     );
@@ -758,9 +861,6 @@ const submitSpecialActivity = async (req, res) => {
       });
     }
 
-    // ═══════════════════════════════════════════
-    // CHECK EXISTING SUBMISSION
-    // ═══════════════════════════════════════════
     let submission = await SpecialSubmission.findOne({
       special_activity_id: id,
       member_id: req.user._id,
@@ -774,9 +874,11 @@ const submitSpecialActivity = async (req, res) => {
     }
 
     // ═══════════════════════════════════════════
-    // VALIDATE AND PROCESS ITEMS
+    // PROCESS ITEMS (validate + normalize)
     // ═══════════════════════════════════════════
     const processedItems = [];
+    const itemHashes = [];
+
     for (const item of items) {
       if (!item.url || !isValidUrl(item.url)) {
         return res.status(400).json({
@@ -798,6 +900,60 @@ const submitSpecialActivity = async (req, res) => {
         status: 'PENDING',
         submitted_at: new Date(),
       });
+
+      itemHashes.push(urlHash);
+    }
+
+    // ═══════════════════════════════════════════
+    // ✅ NEW: GLOBAL DUPLICATE DETECTION (Level C)
+    // Same URL by ANY member in ANY submission
+    // ═══════════════════════════════════════════
+    const excludeSubmissionId = submission?._id;
+
+    const duplicateQuery = {
+      'items.url_hash': { $in: itemHashes },
+    };
+
+    if (excludeSubmissionId) {
+      duplicateQuery._id = { $ne: excludeSubmissionId };
+    }
+
+    const duplicateSubmission = await SpecialSubmission.findOne(duplicateQuery)
+      .populate('special_activity_id', 'title')
+      .populate('member_id', 'first_name last_name')
+      .lean();
+
+    if (duplicateSubmission) {
+      // Find which URL(s) are duplicate
+      const dupHashes = new Set(
+        duplicateSubmission.items
+          .filter((i) => itemHashes.includes(i.url_hash))
+          .map((i) => i.url_hash)
+      );
+
+      const dupItem = processedItems.find((p) => dupHashes.has(p.url_hash));
+      const activityTitle = duplicateSubmission.special_activity_id?.title || 'another activity';
+
+      return res.status(409).json({
+        success: false,
+        error: `Duplicate link detected: "${dupItem?.url}" was already submitted in "${activityTitle}". Each link can only be submitted once.`,
+        duplicate_url: dupItem?.url,
+      });
+    }
+
+    // ═══════════════════════════════════════════
+    // ✅ NEW: Check duplicates WITHIN current submission
+    // (Same URL twice in same submit)
+    // ═══════════════════════════════════════════
+    const hashSet = new Set();
+    for (const hash of itemHashes) {
+      if (hashSet.has(hash)) {
+        return res.status(400).json({
+          success: false,
+          error: 'Same URL submitted twice in this submission',
+        });
+      }
+      hashSet.add(hash);
     }
 
     // ═══════════════════════════════════════════
@@ -808,7 +964,6 @@ const submitSpecialActivity = async (req, res) => {
       submission.status = 'SUBMITTED';
       submission.submitted_at = new Date();
 
-      // Lock if member editing not allowed
       if (!activity.member_editing_allowed) {
         submission.is_locked = true;
         submission.locked_at = new Date();
@@ -832,7 +987,14 @@ const submitSpecialActivity = async (req, res) => {
       $inc: { total_submissions: submission.isNew ? 1 : 0 },
     });
 
-    res.json({ success: true, submission });
+    // ✅ NEW: Return compliance info
+    const compliance = checkCompliance(activity, submission);
+
+    res.json({
+      success: true,
+      submission,
+      compliance,
+    });
   } catch (error) {
     if (error.code === 11000) {
       return res.status(409).json({
