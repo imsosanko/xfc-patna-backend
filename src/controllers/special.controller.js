@@ -49,15 +49,13 @@ const recalcSubmissionStatus = (submission) => {
 };
 
 // ═══════════════════════════════════════════
-// ✅ NEW HELPER: Check compliance with min requirements
-// Returns: { compliant: Boolean, missing: [] }
+// HELPER: Check compliance with min requirements
 // ═══════════════════════════════════════════
 const checkCompliance = (activity, submission) => {
   const requiredReqs = activity.requirements.filter((r) => r.is_required);
   const missing = [];
 
   requiredReqs.forEach((req) => {
-    // Count approved items for this platform+type
     const approvedCount = submission.items.filter(
       (item) =>
         item.platform === req.platform &&
@@ -126,7 +124,6 @@ const createSpecialActivity = async (req, res) => {
       }
     }
 
-    // Validate activity type + linked meetup
     const validTypes = ['NORMAL', 'MEETUP_LAUNCH_LINKED', 'MEETUP_LAUNCH_LABEL'];
     const finalType = validTypes.includes(activity_type) ? activity_type : 'NORMAL';
 
@@ -255,8 +252,6 @@ const getSpecialActivity = async (req, res) => {
     const enrichedSubmissions = await Promise.all(
       submissions.map(async (sub) => {
         const profile = await MemberProfile.findOne({ user_id: sub.member_id });
-
-        // ✅ NEW: Compute compliance
         const compliance = checkCompliance(activity, sub);
 
         return {
@@ -277,7 +272,6 @@ const getSpecialActivity = async (req, res) => {
           last_edited_at: sub.last_edited_at,
           created_at: sub.createdAt,
 
-          // ✅ NEW: Compliance info for admin
           is_compliant: compliance.compliant,
           missing_requirements: compliance.missing,
         };
@@ -304,7 +298,6 @@ const updateSpecialActivity = async (req, res) => {
 
     delete updates.status;
 
-    // Validate activity_type
     if (updates.activity_type) {
       const validTypes = ['NORMAL', 'MEETUP_LAUNCH_LINKED', 'MEETUP_LAUNCH_LABEL'];
       if (!validTypes.includes(updates.activity_type)) {
@@ -312,7 +305,6 @@ const updateSpecialActivity = async (req, res) => {
       }
     }
 
-    // Validate linked meetup
     if (updates.activity_type === 'MEETUP_LAUNCH_LINKED' && updates.linked_meetup_id) {
       const meetupExists = await Meetup.findById(updates.linked_meetup_id);
       if (!meetupExists) {
@@ -323,7 +315,6 @@ const updateSpecialActivity = async (req, res) => {
       }
     }
 
-    // If type changed to non-linked, clear meetup
     if (
       updates.activity_type &&
       updates.activity_type !== 'MEETUP_LAUNCH_LINKED'
@@ -402,7 +393,6 @@ const updateSpecialStatus = async (req, res) => {
     activity.status = status;
     await activity.save();
 
-    // Notify members on OPEN
     if (status === 'OPEN' && previousStatus !== 'OPEN') {
       try {
         const members = await User.find({
@@ -568,10 +558,8 @@ const verifySubmissionItem = async (req, res) => {
 
     await submission.save();
 
-    // ✅ NEW: Compliance check after approval
     const compliance = checkCompliance(activity, submission);
 
-    // Notify member
     try {
       const member = await User.findById(submission.member_id);
       if (member && member.telegram_id) {
@@ -630,7 +618,7 @@ const verifySubmissionItem = async (req, res) => {
       success: true,
       submission,
       points_delta: pointsDelta,
-      compliance, // ✅ NEW
+      compliance,
     });
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
@@ -701,7 +689,6 @@ const bulkVerifyItems = async (req, res) => {
 
     await submission.save();
 
-    // ✅ NEW: Compliance check
     const compliance = checkCompliance(activity, submission);
 
     await AuditLog.create({
@@ -716,7 +703,7 @@ const bulkVerifyItems = async (req, res) => {
       success: true,
       submission,
       points_delta: pointsDelta,
-      compliance, // ✅ NEW
+      compliance,
     });
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
@@ -803,7 +790,6 @@ const getMemberSpecialActivities = async (req, res) => {
           member_id: req.user._id,
         });
 
-        // ✅ NEW: For member, compute compliance too (so they know what's missing)
         let compliance = null;
         if (submission) {
           compliance = checkCompliance(act, submission);
@@ -873,9 +859,6 @@ const submitSpecialActivity = async (req, res) => {
       });
     }
 
-    // ═══════════════════════════════════════════
-    // PROCESS ITEMS (validate + normalize)
-    // ═══════════════════════════════════════════
     const processedItems = [];
     const itemHashes = [];
 
@@ -904,10 +887,7 @@ const submitSpecialActivity = async (req, res) => {
       itemHashes.push(urlHash);
     }
 
-    // ═══════════════════════════════════════════
-    // ✅ NEW: GLOBAL DUPLICATE DETECTION (Level C)
-    // Same URL by ANY member in ANY submission
-    // ═══════════════════════════════════════════
+    // GLOBAL DUPLICATE DETECTION
     const excludeSubmissionId = submission?._id;
 
     const duplicateQuery = {
@@ -924,7 +904,6 @@ const submitSpecialActivity = async (req, res) => {
       .lean();
 
     if (duplicateSubmission) {
-      // Find which URL(s) are duplicate
       const dupHashes = new Set(
         duplicateSubmission.items
           .filter((i) => itemHashes.includes(i.url_hash))
@@ -941,10 +920,7 @@ const submitSpecialActivity = async (req, res) => {
       });
     }
 
-    // ═══════════════════════════════════════════
-    // ✅ NEW: Check duplicates WITHIN current submission
-    // (Same URL twice in same submit)
-    // ═══════════════════════════════════════════
+    // INTERNAL DUPLICATE CHECK
     const hashSet = new Set();
     for (const hash of itemHashes) {
       if (hashSet.has(hash)) {
@@ -956,9 +932,7 @@ const submitSpecialActivity = async (req, res) => {
       hashSet.add(hash);
     }
 
-    // ═══════════════════════════════════════════
     // UPSERT SUBMISSION
-    // ═══════════════════════════════════════════
     if (submission) {
       submission.items = processedItems;
       submission.status = 'SUBMITTED';
@@ -982,12 +956,10 @@ const submitSpecialActivity = async (req, res) => {
 
     await submission.save();
 
-    // Update activity stats
     await SpecialActivity.findByIdAndUpdate(id, {
       $inc: { total_submissions: submission.isNew ? 1 : 0 },
     });
 
-    // ✅ NEW: Return compliance info
     const compliance = checkCompliance(activity, submission);
 
     res.json({
@@ -1006,6 +978,324 @@ const submitSpecialActivity = async (req, res) => {
   }
 };
 
+// ═══════════════════════════════════════════
+// ✅ PHASE 2: ACTIVITY LEADERBOARD
+// ═══════════════════════════════════════════
+const getActivityLeaderboard = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const limit = parseInt(req.query.limit) || 50;
+
+    const activity = await SpecialActivity.findById(id).lean();
+    if (!activity) {
+      return res.status(404).json({ success: false, error: 'Activity not found' });
+    }
+
+    const leaderboard = await SpecialSubmission.aggregate([
+      { $match: { special_activity_id: activity._id } },
+      {
+        $project: {
+          member_id: 1,
+          points_awarded: 1,
+          status: 1,
+          approved_count: {
+            $size: {
+              $filter: {
+                input: '$items',
+                as: 'item',
+                cond: { $eq: ['$$item.status', 'APPROVED'] },
+              },
+            },
+          },
+          rejected_count: {
+            $size: {
+              $filter: {
+                input: '$items',
+                as: 'item',
+                cond: { $eq: ['$$item.status', 'REJECTED'] },
+              },
+            },
+          },
+          total_items: { $size: '$items' },
+          submitted_at: 1,
+        },
+      },
+      {
+        $match: {
+          $or: [
+            { approved_count: { $gt: 0 } },
+            { points_awarded: { $gt: 0 } },
+          ],
+        },
+      },
+      {
+        $sort: { points_awarded: -1, approved_count: -1, submitted_at: 1 },
+      },
+      { $limit: limit },
+    ]);
+
+    const enriched = await Promise.all(
+      leaderboard.map(async (entry, idx) => {
+        const user = await User.findById(entry.member_id)
+          .select('first_name last_name telegram_username profile_photo_url badges admin_badges')
+          .lean();
+        const profile = await MemberProfile.findOne({ user_id: entry.member_id }).lean();
+
+        return {
+          rank: idx + 1,
+          member_id: entry.member_id,
+          name: profile?.full_name || user?.first_name || 'Unknown',
+          xiaomi_id: profile?.xiaomi_id || 'N/A',
+          telegram_username: user?.telegram_username || '',
+          photo_url: user?.profile_photo_url || '',
+          badges: (user?.badges || []).slice(0, 3),
+          admin_badges: (user?.admin_badges || []).slice(0, 3),
+          points: Math.round((entry.points_awarded || 0) * 100) / 100,
+          approved_count: entry.approved_count || 0,
+          total_items: entry.total_items || 0,
+          status: entry.status,
+          submitted_at: entry.submitted_at,
+        };
+      })
+    );
+
+    let myRank = null;
+    let myEntry = null;
+    if (req.user) {
+      const idx = enriched.findIndex(
+        (e) => String(e.member_id) === String(req.user._id)
+      );
+      if (idx >= 0) {
+        myRank = idx + 1;
+        myEntry = enriched[idx];
+      }
+    }
+
+    res.json({
+      success: true,
+      activity: {
+        _id: activity._id,
+        title: activity.title,
+        banner_url: activity.banner_url,
+        special_points: activity.special_points,
+        activity_type: activity.activity_type,
+      },
+      total_ranked: enriched.length,
+      leaderboard: enriched,
+      my_rank: myRank,
+      my_entry: myEntry,
+    });
+  } catch (error) {
+    console.error('getActivityLeaderboard error:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+};
+
+// ═══════════════════════════════════════════
+// ✅ PHASE 2: ACTIVITY ANALYTICS
+// ═══════════════════════════════════════════
+const getActivityAnalytics = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const activity = await SpecialActivity.findById(id).lean();
+    if (!activity) {
+      return res.status(404).json({ success: false, error: 'Activity not found' });
+    }
+
+    const submissions = await SpecialSubmission.find({
+      special_activity_id: id,
+    }).lean();
+
+    const totalSubmissions = submissions.length;
+    const uniqueMembers = new Set(submissions.map((s) => String(s.member_id))).size;
+
+    let totalItems = 0;
+    let approvedItems = 0;
+    let rejectedItems = 0;
+    let pendingItems = 0;
+    let totalPointsAwarded = 0;
+
+    const statusBreakdown = {
+      NOT_STARTED: 0,
+      SUBMITTED: 0,
+      UNDER_REVIEW: 0,
+      APPROVED: 0,
+      PARTIALLY_APPROVED: 0,
+      REJECTED: 0,
+      COMPLETED: 0,
+    };
+
+    const platformStats = {};
+
+    submissions.forEach((sub) => {
+      statusBreakdown[sub.status] = (statusBreakdown[sub.status] || 0) + 1;
+      totalPointsAwarded += sub.points_awarded || 0;
+
+      (sub.items || []).forEach((item) => {
+        totalItems++;
+        if (item.status === 'APPROVED') approvedItems++;
+        else if (item.status === 'REJECTED') rejectedItems++;
+        else pendingItems++;
+
+        const key = `${item.platform}-${item.activity_type}`;
+        if (!platformStats[key]) {
+          platformStats[key] = {
+            platform: item.platform,
+            activity_type: item.activity_type,
+            total: 0,
+            approved: 0,
+            rejected: 0,
+            pending: 0,
+          };
+        }
+        platformStats[key].total++;
+        if (item.status === 'APPROVED') platformStats[key].approved++;
+        else if (item.status === 'REJECTED') platformStats[key].rejected++;
+        else platformStats[key].pending++;
+      });
+    });
+
+    const approvalRate = totalItems > 0 ? Math.round((approvedItems / totalItems) * 100) : 0;
+    const completionRate = totalSubmissions > 0
+      ? Math.round(((statusBreakdown.APPROVED + statusBreakdown.COMPLETED) / totalSubmissions) * 100)
+      : 0;
+    const avgPointsPerSubmission = totalSubmissions > 0
+      ? Math.round((totalPointsAwarded / totalSubmissions) * 100) / 100
+      : 0;
+    const avgItemsPerSubmission = totalSubmissions > 0
+      ? Math.round((totalItems / totalSubmissions) * 100) / 100
+      : 0;
+
+    const dailyTrend = [];
+    const now = new Date();
+    for (let i = 13; i >= 0; i--) {
+      const d = new Date(now);
+      d.setDate(d.getDate() - i);
+      const dateStr = d.toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+      const count = submissions.filter((s) => {
+        if (!s.submitted_at) return false;
+        const subDate = new Date(s.submitted_at).toLocaleDateString('en-CA', {
+          timeZone: 'Asia/Kolkata',
+        });
+        return subDate === dateStr;
+      }).length;
+      dailyTrend.push({ date: dateStr, count });
+    }
+
+    res.json({
+      success: true,
+      activity: {
+        _id: activity._id,
+        title: activity.title,
+        status: activity.status,
+        special_points: activity.special_points,
+        start_date: activity.start_date,
+        end_date: activity.end_date,
+      },
+      overview: {
+        total_submissions: totalSubmissions,
+        unique_members: uniqueMembers,
+        total_items: totalItems,
+        approved_items: approvedItems,
+        rejected_items: rejectedItems,
+        pending_items: pendingItems,
+        total_points_awarded: Math.round(totalPointsAwarded * 100) / 100,
+        approval_rate: approvalRate,
+        completion_rate: completionRate,
+        avg_points_per_submission: avgPointsPerSubmission,
+        avg_items_per_submission: avgItemsPerSubmission,
+      },
+      status_breakdown: statusBreakdown,
+      platform_stats: Object.values(platformStats).sort((a, b) => b.total - a.total),
+      daily_trend: dailyTrend,
+    });
+  } catch (error) {
+    console.error('getActivityAnalytics error:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+};
+
+// ═══════════════════════════════════════════
+// ✅ PHASE 2: EXPORT ACTIVITY SUBMISSIONS
+// ═══════════════════════════════════════════
+const exportActivitySubmissions = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { format = 'csv', status: statusFilter } = req.query;
+
+    const activity = await SpecialActivity.findById(id).lean();
+    if (!activity) {
+      return res.status(404).json({ success: false, error: 'Activity not found' });
+    }
+
+    const query = { special_activity_id: id };
+    if (statusFilter) query.status = statusFilter;
+
+    const submissions = await SpecialSubmission.find(query)
+      .sort({ points_awarded: -1, createdAt: 1 })
+      .populate('member_id', 'first_name last_name telegram_username')
+      .lean();
+
+    const headers = [
+      'Rank', 'Member', 'Xiaomi ID', 'Telegram', 'Status', 'Points Awarded',
+      'Approved Items', 'Rejected Items', 'Pending Items', 'Submitted At', 'Item Details',
+    ];
+
+    const rows = [];
+    for (let idx = 0; idx < submissions.length; idx++) {
+      const sub = submissions[idx];
+      const profile = await MemberProfile.findOne({ user_id: sub.member_id?._id }).lean();
+
+      const approved = sub.items.filter((i) => i.status === 'APPROVED').length;
+      const rejected = sub.items.filter((i) => i.status === 'REJECTED').length;
+      const pending = sub.items.filter((i) => i.status === 'PENDING').length;
+
+      const itemDetails = (sub.items || [])
+        .map((item) =>
+          `${item.platform} ${item.activity_type}: ${item.status}${item.points ? ` (+${item.points})` : ''} — ${item.url}${item.rejection_reason ? ` [${item.rejection_reason}]` : ''}`
+        )
+        .join(' | ');
+
+      rows.push([
+        idx + 1,
+        profile?.full_name || sub.member_id?.first_name || 'Unknown',
+        profile?.xiaomi_id || 'N/A',
+        sub.member_id?.telegram_username ? '@' + sub.member_id.telegram_username.replace('@', '') : '',
+        sub.status,
+        sub.points_awarded || 0,
+        approved,
+        rejected,
+        pending,
+        sub.submitted_at ? new Date(sub.submitted_at).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }) : '',
+        itemDetails,
+      ]);
+    }
+
+    const { generateExport } = require('../services/exportHelper.service');
+
+    const { buffer, contentType, extension } = await generateExport(format, {
+      title: `Special Activity — ${activity.title}`,
+      headers,
+      rows,
+      sheetName: 'Submissions',
+    });
+
+    const safeTitle = activity.title.replace(/[^a-z0-9]/gi, '-').toLowerCase();
+    const filename = `xfc-special-${safeTitle}-${Date.now()}.${extension}`;
+
+    res.setHeader('Content-Type', contentType);
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.send(buffer);
+  } catch (error) {
+    console.error('exportActivitySubmissions error:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+};
+
+// ═══════════════════════════════════════════
+// EXPORTS
+// ═══════════════════════════════════════════
 module.exports = {
   createSpecialActivity,
   listSpecialActivities,
@@ -1018,4 +1308,9 @@ module.exports = {
   editMemberSubmission,
   getMemberSpecialActivities,
   submitSpecialActivity,
+
+  // ✅ PHASE 2
+  getActivityLeaderboard,
+  getActivityAnalytics,
+  exportActivitySubmissions,
 };
