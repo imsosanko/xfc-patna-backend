@@ -81,6 +81,23 @@ const checkCompliance = (activity, submission) => {
 };
 
 // ═══════════════════════════════════════════
+// HELPER: Rollback leaderboard points for a submission
+// ═══════════════════════════════════════════
+const rollbackLeaderboardPoints = async (submission, activity, points) => {
+  if (!activity || !activity.count_toward_leaderboard || points <= 0) return;
+  const month = formatDateIST().substring(0, 7);
+  await MonthlyScore.findOneAndUpdate(
+    { member_id: submission.member_id, month },
+    {
+      $inc: {
+        special_points: -points,
+        total_points: -points,
+      },
+    }
+  );
+};
+
+// ═══════════════════════════════════════════
 // ADMIN: CREATE SPECIAL ACTIVITY
 // ═══════════════════════════════════════════
 const createSpecialActivity = async (req, res) => {
@@ -720,6 +737,7 @@ const bulkVerifyItems = async (req, res) => {
 
 // ═══════════════════════════════════════════
 // ADMIN: EDIT MEMBER SUBMISSION
+// ✅ FIX: Unlock submission when all items removed
 // ═══════════════════════════════════════════
 const editMemberSubmission = async (req, res) => {
   try {
@@ -731,30 +749,55 @@ const editMemberSubmission = async (req, res) => {
       return res.status(404).json({ success: false, error: 'Submission not found' });
     }
 
+    const activity = await SpecialActivity.findById(submission.special_activity_id);
+
     const previous = {
       items: submission.items.map((i) => ({
         url: i.url,
         status: i.status,
       })),
+      points_awarded: submission.points_awarded || 0,
+      is_locked: submission.is_locked,
     };
 
     if (Array.isArray(items)) {
-      submission.items = items.map((item) => ({
-        platform: item.platform || 'Unknown',
-        activity_type: item.activity_type || 'Post',
-        url: item.url,
-        normalized_url: item.normalized_url || item.url,
-        url_hash: item.url_hash || '',
-        status: item.status || 'PENDING',
-        rejection_reason: item.rejection_reason || '',
-        points: item.points || 0,
-        submitted_at: item.submitted_at || submission.createdAt,
-        reviewed_at: item.reviewed_at || null,
-        reviewed_by: item.reviewed_by || null,
-      }));
+      // ✅ CASE A: Admin emptied the submission — UNLOCK + reset
+      if (items.length === 0) {
+        const previousPoints = submission.points_awarded || 0;
+
+        submission.items = [];
+        submission.status = 'NOT_STARTED';
+        submission.points_awarded = 0;
+
+        // ✅ CRITICAL: Unlock so member can re-submit
+        submission.is_locked = false;
+        submission.locked_at = null;
+        submission.submitted_at = null;
+
+        // ✅ Roll back leaderboard points
+        await rollbackLeaderboardPoints(submission, activity, previousPoints);
+      } else {
+        // ✅ CASE B: Normal edit — replace items, recalc status
+        submission.items = items.map((item) => ({
+          platform: item.platform || 'Unknown',
+          activity_type: item.activity_type || 'Post',
+          url: item.url,
+          normalized_url: item.normalized_url || item.url,
+          url_hash: item.url_hash || '',
+          status: item.status || 'PENDING',
+          rejection_reason: item.rejection_reason || '',
+          points: item.points || 0,
+          submitted_at: item.submitted_at || submission.createdAt,
+          reviewed_at: item.reviewed_at || null,
+          reviewed_by: item.reviewed_by || null,
+        }));
+        submission.status = recalcSubmissionStatus(submission);
+      }
+    } else {
+      // items not provided — just recalc status from existing items
+      submission.status = recalcSubmissionStatus(submission);
     }
 
-    submission.status = recalcSubmissionStatus(submission);
     submission.last_edited_by = req.admin._id;
     submission.last_edited_at = new Date();
     submission.edit_history.push({
@@ -772,7 +815,13 @@ const editMemberSubmission = async (req, res) => {
       target_type: 'SPECIAL_SUBMISSION',
       target_id: submission._id,
       previous_value: previous,
-      new_value: { items, note },
+      new_value: {
+        items,
+        note,
+        points_awarded: submission.points_awarded,
+        is_locked: submission.is_locked,
+        status: submission.status,
+      },
     });
 
     res.json({ success: true, submission });
@@ -822,6 +871,7 @@ const getMemberSpecialActivities = async (req, res) => {
 
 // ═══════════════════════════════════════════
 // MEMBER: SUBMIT TO SPECIAL ACTIVITY
+// ✅ FIX: isNew detection + explicit unlock on edit-allowed
 // ═══════════════════════════════════════════
 const submitSpecialActivity = async (req, res) => {
   try {
@@ -843,64 +893,68 @@ const submitSpecialActivity = async (req, res) => {
       });
     }
 
-// ✅ Status check
-if (activity.status !== 'OPEN') {
-  if (activity.status === 'PAUSED') {
-    return res.status(400).json({
-      success: false,
-      error: 'Submission is temporarily paused by admin',
-    });
-  }
-  if (activity.status === 'CLOSED') {
-    return res.status(400).json({
-      success: false,
-      error: 'Submission is closed',
-    });
-  }
-  if (activity.status === 'LOCKED') {
-    return res.status(400).json({
-      success: false,
-      error: 'Submission is locked',
-    });
-  }
-  return res.status(400).json({
-    success: false,
-    error: 'Special activity is not open for submission',
-  });
-}
+    // ✅ Status check
+    if (activity.status !== 'OPEN') {
+      if (activity.status === 'PAUSED') {
+        return res.status(400).json({
+          success: false,
+          error: 'Submission is temporarily paused by admin',
+        });
+      }
+      if (activity.status === 'CLOSED') {
+        return res.status(400).json({
+          success: false,
+          error: 'Submission is closed',
+        });
+      }
+      if (activity.status === 'LOCKED') {
+        return res.status(400).json({
+          success: false,
+          error: 'Submission is locked',
+        });
+      }
+      return res.status(400).json({
+        success: false,
+        error: 'Special activity is not open for submission',
+      });
+    }
 
-const now = new Date();
+    const now = new Date();
 
-// ✅ Start date se pehle block
-if (now < activity.start_date) {
-  const startStr = new Date(activity.start_date).toLocaleString('en-IN', {
-    day: 'numeric',
-    month: 'short',
-    year: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-    timeZone: 'Asia/Kolkata',
-  });
-  return res.status(400).json({
-    success: false,
-    error: `Submission opens on ${startStr}. Come back then!`,
-  });
-}
+    // ✅ Start date se pehle block
+    if (now < activity.start_date) {
+      const startStr = new Date(activity.start_date).toLocaleString('en-IN', {
+        day: 'numeric',
+        month: 'short',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+        timeZone: 'Asia/Kolkata',
+      });
+      return res.status(400).json({
+        success: false,
+        error: `Submission opens on ${startStr}. Come back then!`,
+      });
+    }
 
-// ✅ End date ke baad block
-if (now > activity.end_date) {
-  return res.status(400).json({
-    success: false,
-    error: 'Submission deadline has passed',
-  });
-}
+    // ✅ End date ke baad block
+    if (now > activity.end_date) {
+      return res.status(400).json({
+        success: false,
+        error: 'Submission deadline has passed',
+      });
+    }
 
     let submission = await SpecialSubmission.findOne({
       special_activity_id: id,
       member_id: req.user._id,
     });
 
-    if (submission && submission.is_locked) {
+    // ✅ FIX: Locked tabhi block karo jab items bhi hon
+    // (defense against stale locked+empty rows)
+    const existingHasItems =
+      submission && Array.isArray(submission.items) && submission.items.length > 0;
+    if (submission && submission.is_locked && existingHasItems) {
       return res.status(403).json({
         success: false,
         error: 'Your submission is locked. Contact admin to make changes.',
@@ -980,7 +1034,9 @@ if (now > activity.end_date) {
       hashSet.add(hash);
     }
 
-    // UPSERT SUBMISSION
+    // ✅ UPSERT SUBMISSION
+    let isNewSubmission = false;
+
     if (submission) {
       submission.items = processedItems;
       submission.status = 'SUBMITTED';
@@ -989,8 +1045,13 @@ if (now > activity.end_date) {
       if (!activity.member_editing_allowed) {
         submission.is_locked = true;
         submission.locked_at = new Date();
+      } else {
+        // ✅ Explicit unlock on edit-allowed
+        submission.is_locked = false;
+        submission.locked_at = null;
       }
     } else {
+      isNewSubmission = true;
       submission = new SpecialSubmission({
         special_activity_id: id,
         member_id: req.user._id,
@@ -1004,9 +1065,10 @@ if (now > activity.end_date) {
 
     await submission.save();
 
-    await SpecialActivity.findByIdAndUpdate(id, {
-      $inc: { total_submissions: submission.isNew ? 1 : 0 },
-    });
+    // ✅ FIX: Use captured flag — submission.isNew is false after save()
+    if (isNewSubmission) {
+      await SpecialActivity.findByIdAndUpdate(id, { $inc: { total_submissions: 1 } });
+    }
 
     const compliance = checkCompliance(activity, submission);
 
