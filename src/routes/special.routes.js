@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const { protect } = require('../middlewares/telegramAuth');
 const { adminProtect } = require('../middlewares/adminAuth');
+const { anyAuth } = require('../middlewares/anyAuth');
 
 const {
   // ═══ ADMIN ═══
@@ -19,7 +20,7 @@ const {
   getMemberSpecialActivities,
   submitSpecialActivity,
 
-  // ═══ PHASE 2: Leaderboard, Analytics, Export ═══
+  // ═══ PHASE 2 ═══
   getActivityLeaderboard,
   getActivityAnalytics,
   exportActivitySubmissions,
@@ -30,7 +31,9 @@ const {
 // ═══════════════════════════════════════════
 router.get('/my-activities', protect, getMemberSpecialActivities);
 router.post('/:id/submit', protect, submitSpecialActivity);
-router.get('/:id/leaderboard', protect, getActivityLeaderboard);
+
+// ✅ FIX: Admin + Member both allowed
+router.get('/:id/leaderboard', anyAuth, getActivityLeaderboard);
 
 // ═══════════════════════════════════════════
 // ADMIN ROUTES
@@ -38,7 +41,6 @@ router.get('/:id/leaderboard', protect, getActivityLeaderboard);
 router.post('/', adminProtect, createSpecialActivity);
 router.get('/', adminProtect, listSpecialActivities);
 
-// Submissions (before /:id dynamic route)
 router.patch(
   '/submissions/:submissionId/items/:itemIndex',
   adminProtect,
@@ -51,11 +53,9 @@ router.post(
 );
 router.patch('/submissions/:submissionId', adminProtect, editMemberSubmission);
 
-// Phase 2: Analytics + Export
 router.get('/:id/analytics', adminProtect, getActivityAnalytics);
 router.get('/:id/export', adminProtect, exportActivitySubmissions);
 
-// Dynamic last
 router.get('/:id', adminProtect, getSpecialActivity);
 router.put('/:id', adminProtect, updateSpecialActivity);
 router.patch('/:id/status', adminProtect, updateSpecialStatus);

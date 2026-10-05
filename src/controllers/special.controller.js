@@ -1090,6 +1090,7 @@ const submitSpecialActivity = async (req, res) => {
 
 // ═══════════════════════════════════════════
 // ✅ PHASE 2: ACTIVITY LEADERBOARD
+// ✅ FIX: Accept both admin (req.admin) & member (req.user)
 // ═══════════════════════════════════════════
 const getActivityLeaderboard = async (req, res) => {
   try {
@@ -1169,11 +1170,13 @@ const getActivityLeaderboard = async (req, res) => {
       })
     );
 
+    // ✅ FIX: Accept both member (req.user) and admin (req.admin)
     let myRank = null;
     let myEntry = null;
-    if (req.user) {
+    const requestingUserId = req.user?._id || req.admin?._id;
+    if (requestingUserId) {
       const idx = enriched.findIndex(
-        (e) => String(e.member_id) === String(req.user._id)
+        (e) => String(e.member_id) === String(requestingUserId)
       );
       if (idx >= 0) {
         myRank = idx + 1;
