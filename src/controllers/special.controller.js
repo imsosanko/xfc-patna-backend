@@ -378,28 +378,50 @@ const updateSpecialStatus = async (req, res) => {
     activity.status = status;
     await activity.save();
 
-    // Notify members when publishing (OPEN)
+    // ✅ Notify members on OPEN — with smart timing message
     if (status === 'OPEN' && previousStatus !== 'OPEN') {
       try {
+        const now = new Date();
+        const isFuture = now < activity.start_date;
+
+        const startStr = new Date(activity.start_date).toLocaleString('en-IN', {
+          day: 'numeric',
+          month: 'short',
+          hour: '2-digit',
+          minute: '2-digit',
+          timeZone: 'Asia/Kolkata',
+        });
+
+        const isHighPriority = activity.special_points >= 50;
+        const emoji = isHighPriority ? '🎉' : '🚀';
+
+        const title = isFuture
+          ? `${emoji} New Activity: ${activity.title}`
+          : `${emoji} LIVE Now: ${activity.title}`;
+
+        const message = isFuture
+          ? `🚀 *${activity.title}* is coming!\n\n⏰ Starts: ${startStr}\n🏆 ${activity.special_points} points up for grabs!\n\n📝 Get your posts ready.\n\n👉 Open the app to see full details.`
+          : `🚀 *${activity.title}* is LIVE now!\n\n🏆 ${activity.special_points} points up for grabs!\n\n📝 Submit your links and climb the leaderboard!\n\n⏰ Ends: ${new Date(activity.end_date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}`;
+
         const members = await User.find({
           role: 'MEMBER',
           status: 'ACTIVE',
           'notification_preferences.broadcasts': { $ne: false },
         }).select('_id telegram_id first_name');
 
-        const template = notificationService.formatSpecialCampaign({
-          campaign: activity,
-        });
-
         for (const member of members) {
           if (!member.telegram_id) continue;
           await notificationService.sendNotification({
             memberId: member._id,
             telegramId: member.telegram_id,
-            type: template.type,
-            title: template.title,
-            message: template.message,
-            data: template.data,
+            type: 'SPECIAL_CAMPAIGN',
+            title,
+            message,
+            data: {
+              special_activity_id: activity._id,
+              starts_at: activity.start_date,
+              action: 'open_special',
+            },
             adminId: req.admin._id,
           });
         }
