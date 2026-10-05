@@ -3,6 +3,8 @@ const router = express.Router();
 const {
   adminProtect,
   superAdminOnly,
+  requirePermission,
+  requireAnyPermission,
 } = require('../middlewares/adminAuth');
 const {
   adminLogin,
@@ -75,6 +77,16 @@ const {
   linkAdminToMember,
   unlinkAdminFromMember,
 } = require('../controllers/adminManagement.controller');
+const {
+  listPopups,
+  getPopup,
+  createPopup,
+  updatePopup,
+  deletePopup,
+  togglePopup,
+  autofillSpecial,
+  autofillMeetup,
+} = require('../controllers/popup.controller');
 
 // ═══════════════════════════════════════════
 // PUBLIC ROUTES
@@ -115,11 +127,11 @@ router.post('/activities/bulk-reject', adminProtect, bulkReject);
 // ═══════════════════════════════════════════
 // AUTO-VERIFICATION
 // ═══════════════════════════════════════════
-router.get('/auto-verify/settings', adminProtect, superAdminOnly, getAutoVerifySettings);
-router.post('/auto-verify/toggle', adminProtect, superAdminOnly, toggleAutoVerify);
-router.patch('/auto-verify/timing', adminProtect, superAdminOnly, updateAutoVerifyTiming);
-router.get('/auto-verify/log', adminProtect, superAdminOnly, getAutoApprovedLog);
-router.patch('/auto-verify/override/:id', adminProtect, superAdminOnly, overrideAutoApproved);
+router.get('/auto-verify/settings', adminProtect, requirePermission('auto_verify.view'), getAutoVerifySettings);
+router.post('/auto-verify/toggle', adminProtect, requirePermission('auto_verify.manage'), toggleAutoVerify);
+router.patch('/auto-verify/timing', adminProtect, requirePermission('auto_verify.manage'), updateAutoVerifyTiming);
+router.get('/auto-verify/log', adminProtect, requirePermission('auto_verify.view'), getAutoApprovedLog);
+router.patch('/auto-verify/override/:id', adminProtect, requirePermission('auto_verify.manage'), overrideAutoApproved);
 
 // ═══════════════════════════════════════════
 // REPORTS
@@ -165,11 +177,11 @@ router.get('/meetups/:id/attendance-pdf', adminProtect, downloadMeetupAttendance
 // ═══════════════════════════════════════════
 // BADGE MANAGER
 // ═══════════════════════════════════════════
-router.get('/badges/catalog', adminProtect, getBadgesCatalog);
-router.get('/badges/users', adminProtect, searchUsersForBadges);
-router.post('/badges/users/:id/give', adminProtect, superAdminOnly, giveBadgeToUser);
-router.post('/badges/users/:id/give-all', adminProtect, superAdminOnly, giveAllBadgesToUser);
-router.delete('/badges/users/:id/remove/:badge_code', adminProtect, superAdminOnly, removeBadgeFromUser);
+router.get('/badges/catalog', adminProtect, requirePermission('badges.view'), getBadgesCatalog);
+router.get('/badges/users', adminProtect, requirePermission('badges.view'), searchUsersForBadges);
+router.post('/badges/users/:id/give', adminProtect, requirePermission('badges.manage'), giveBadgeToUser);
+router.post('/badges/users/:id/give-all', adminProtect, requirePermission('badges.manage'), giveAllBadgesToUser);
+router.delete('/badges/users/:id/remove/:badge_code', adminProtect, requirePermission('badges.manage'), removeBadgeFromUser);
 
 // ═══════════════════════════════════════════
 // NOTIFICATIONS / BROADCAST
@@ -191,18 +203,30 @@ router.get('/export/activity-log', adminProtect, exportActivityLogCSV);
 // ═══════════════════════════════════════════
 router.get('/me', adminProtect, getMe);
 router.post('/me/change-password', adminProtect, changeOwnPassword);
-router.get('/admins/permissions', adminProtect, superAdminOnly, getAvailablePermissions);
-router.get('/admins', adminProtect, superAdminOnly, listAdmins);
-router.post('/admins', adminProtect, superAdminOnly, createAdmin);
-router.patch('/admins/:id', adminProtect, superAdminOnly, updateAdmin);
-router.post('/admins/:id/reset-password', adminProtect, superAdminOnly, resetAdminPassword);
-router.delete('/admins/:id', adminProtect, superAdminOnly, deleteAdmin);
+router.get('/admins/permissions', adminProtect, requirePermission('admins.view'), getAvailablePermissions);
+router.get('/admins', adminProtect, requirePermission('admins.view'), listAdmins);
+router.post('/admins', adminProtect, requirePermission('admins.manage'), createAdmin);
+router.patch('/admins/:id', adminProtect, requirePermission('admins.manage'), updateAdmin);
+router.post('/admins/:id/reset-password', adminProtect, requirePermission('admins.manage'), resetAdminPassword);
+router.delete('/admins/:id', adminProtect, requirePermission('admins.manage'), deleteAdmin);
 
 // ═══════════════════════════════════════════
 // ADMIN ↔ MEMBER LINKING
 // ═══════════════════════════════════════════
-router.get('/admins/search-members', adminProtect, superAdminOnly, searchMembersForLink);
-router.patch('/admins/:id/link-member', adminProtect, superAdminOnly, linkAdminToMember);
-router.delete('/admins/:id/unlink-member', adminProtect, superAdminOnly, unlinkAdminFromMember);
+router.get('/admins/search-members', adminProtect, requirePermission('admins.manage'), searchMembersForLink);
+router.patch('/admins/:id/link-member', adminProtect, requirePermission('admins.manage'), linkAdminToMember);
+router.delete('/admins/:id/unlink-member', adminProtect, requirePermission('admins.manage'), unlinkAdminFromMember);
+
+// ═══════════════════════════════════════════
+// POPUP MESSAGES (Permission-based)
+// ═══════════════════════════════════════════
+router.get('/popups', adminProtect, requirePermission('popups.view'), listPopups);
+router.get('/popups/autofill/special', adminProtect, requirePermission('popups.manage'), autofillSpecial);
+router.get('/popups/autofill/meetup', adminProtect, requirePermission('popups.manage'), autofillMeetup);
+router.get('/popups/:id', adminProtect, requirePermission('popups.view'), getPopup);
+router.post('/popups', adminProtect, requirePermission('popups.manage'), createPopup);
+router.patch('/popups/:id', adminProtect, requirePermission('popups.manage'), updatePopup);
+router.delete('/popups/:id', adminProtect, requirePermission('popups.manage'), deletePopup);
+router.patch('/popups/:id/toggle', adminProtect, requirePermission('popups.manage'), togglePopup);
 
 module.exports = router;

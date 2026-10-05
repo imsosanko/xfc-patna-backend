@@ -16,6 +16,10 @@ const {
   markAllAsRead,
   deleteNotification,
 } = require('../controllers/notification.controller');
+const {
+  getActivePopup,
+  dismissPopup,
+} = require('../controllers/popup.controller');
 
 // ═══════════════════════════════════════════
 // PROFILE
@@ -47,5 +51,11 @@ router.get('/notifications/unread-count', protect, getUnreadCount);
 router.patch('/notifications/read-all', protect, markAllAsRead);
 router.patch('/notifications/:id/read', protect, markAsRead);
 router.delete('/notifications/:id', protect, deleteNotification);
+
+// ═══════════════════════════════════════════
+// POPUP MESSAGES
+// ═══════════════════════════════════════════
+router.get('/popups/active', protect, getActivePopup);
+router.post('/popups/:id/dismiss', protect, dismissPopup);
 
 module.exports = router;
