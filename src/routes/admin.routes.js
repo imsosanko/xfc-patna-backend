@@ -103,6 +103,7 @@ router.get('/dashboard', adminProtect, getDashboardStats);
 // MEMBERS
 // ═══════════════════════════════════════════
 router.get('/members', adminProtect, listMembers);
+router.post('/members/bulk-adjust-points', adminProtect, bulkAdjustMemberPoints);
 router.patch('/members/:id/status', adminProtect, updateMemberStatus);
 router.post('/members/:id/adjust-points', adminProtect, adjustMemberPoints);
 router.get('/members/:id/points-breakdown', adminProtect, getMemberPointsBreakdown);
@@ -114,7 +115,7 @@ router.get('/members/:id/detail', adminProtect, getMemberDetail);
 router.patch('/members/:id/detail', adminProtect, updateMemberDetail);
 router.get('/members/:id/activities', adminProtect, getMemberActivitiesReport);
 router.get('/members/:id/heatmap', adminProtect, getMemberHeatmap);
-router.get('/members/:id/activities/export', adminProtect, exportMemberActivities);  // ⬅️ NEW
+router.get('/members/:id/activities/export', adminProtect, exportMemberActivities);
 
 // ═══════════════════════════════════════════
 // ACTIVITIES
@@ -146,7 +147,7 @@ router.get('/reports/member-wise/export', adminProtect, exportMemberWiseCSV);
 // LEADERBOARD
 // ═══════════════════════════════════════════
 router.get('/leaderboard', adminProtect, getAdminLeaderboard);
-router.get('/leaderboard/export', adminProtect, exportLeaderboard);  // ⬅️ NEW
+router.get('/leaderboard/export', adminProtect, exportLeaderboard);
 
 // ═══════════════════════════════════════════
 // ANALYTICS
