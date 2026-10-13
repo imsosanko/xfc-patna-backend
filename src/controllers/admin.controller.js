@@ -623,7 +623,7 @@ const bulkAdjustMemberPoints = async (req, res) => {
             telegramId: user.telegram_id,
             type: 'BONUS_POINTS',
             title: '🎁 Bonus Points Received!',
-            message: `🎁 *Bonus Points Awarded!*\n\n👤 Admin ne aapko *+${bonus}* bonus points diye hain.\n\n📅 Month: ${monthLabel}\n💰 New Total: *${newTotal}*\n📝 Reason: ${finalReason}\n\nKeep it up! 🔥`,
+            message: `🎁 *Bonus Points Credited!*\n\nHello! 👋\n\nYou've been awarded *+${bonus} bonus points* for your outstanding contribution.\n\n📅 *For:* ${monthLabel}\n💎 *New Balance:* ${newTotal} points\n📝 *Reason:* ${finalReason}\n\nKeep up the great work! 🚀`,
             data: {
               bonus,
               month,
