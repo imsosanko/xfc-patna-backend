@@ -14,13 +14,14 @@ const NotificationSchema = new mongoose.Schema({
       'ACTIVITY_REJECTED',
       'SPECIAL_CAMPAIGN',
       'MEETUP_REMINDER',
-      'MEETUP_REMINDER_2H',      // ← NEW
+      'MEETUP_REMINDER_2H',
       'MEETUP_RSVP',
       'BROADCAST',
       'POINTS_ADJUSTED',
-      'DAILY_REMINDER',          // ← NEW
-      'STREAK_WARNING',          // ← NEW
-      'STREAK_MILESTONE',        // ← NEW
+      'BONUS_POINTS',
+      'DAILY_REMINDER',
+      'STREAK_WARNING',
+      'STREAK_MILESTONE',
       'SYSTEM',
     ],
     required: true,
