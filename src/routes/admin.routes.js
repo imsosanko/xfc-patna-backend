@@ -14,6 +14,7 @@ const {
   getMemberDetail,
   updateMemberDetail,
   adjustMemberPoints,
+  bulkAdjustMemberPoints,
   getMemberPointsBreakdown,
   listActivities,
   approveActivity,

@@ -488,6 +488,198 @@ const adjustMemberPoints = async (req, res) => {
 };
 
 // ═══════════════════════════════════════════
+// ADMIN: BULK ADJUST MEMBER POINTS (Bonus)
+// ═══════════════════════════════════════════
+const bulkAdjustMemberPoints = async (req, res) => {
+  try {
+    const {
+      member_ids,
+      type = 'FIXED',
+      amount,
+      month,
+      reason,
+      preset,
+      send_notification = true,
+    } = req.body;
+
+    if (!Array.isArray(member_ids) || member_ids.length === 0) {
+      return res.status(400).json({ success: false, error: 'No members selected' });
+    }
+    if (member_ids.length > 500) {
+      return res.status(400).json({ success: false, error: 'Max 500 members at once' });
+    }
+    if (!['FIXED', 'PERCENTAGE'].includes(type)) {
+      return res.status(400).json({ success: false, error: 'Invalid type' });
+    }
+    const numAmount = parseFloat(amount);
+    if (isNaN(numAmount) || numAmount === 0) {
+      return res.status(400).json({ success: false, error: 'Amount must be non-zero' });
+    }
+    if (type === 'PERCENTAGE' && (numAmount <= 0 || numAmount > 500)) {
+      return res.status(400).json({ success: false, error: 'Percentage must be 1-500' });
+    }
+    if (!month || !/^\d{4}-\d{2}$/.test(month)) {
+      return res.status(400).json({ success: false, error: 'Invalid month (YYYY-MM)' });
+    }
+    const finalReason = (reason || preset || '').trim();
+    if (finalReason.length < 3) {
+      return res.status(400).json({ success: false, error: 'Reason required (min 3 chars)' });
+    }
+
+    const users = await User.find({ _id: { $in: member_ids } }).select('_id telegram_id first_name');
+    if (users.length === 0) {
+      return res.status(404).json({ success: false, error: 'No members found' });
+    }
+
+    // Super admin self-protection
+    if (req.admin.role !== 'SUPER_ADMIN' && req.admin.user_id) {
+      const selfId = String(req.admin.user_id);
+      if (member_ids.map(String).includes(selfId)) {
+        return res.status(403).json({
+          success: false,
+          error: 'You cannot give bonus to yourself',
+        });
+      }
+    }
+
+    // Fetch existing scores
+    const existingScores = await MonthlyScore.find({
+      member_id: { $in: member_ids },
+      month,
+    }).lean();
+    const scoreMap = Object.fromEntries(
+      existingScores.map((s) => [String(s.member_id), s])
+    );
+
+    const results = [];
+    const notificationQueue = [];
+
+    for (const user of users) {
+      const userId = String(user._id);
+      const existing = scoreMap[userId];
+
+      const basePoints = existing ? (existing.total_points || 0) : 0;
+
+      let bonus;
+      if (type === 'FIXED') {
+        bonus = numAmount;
+      } else {
+        bonus = Math.round(((basePoints * numAmount) / 100) * 100) / 100;
+      }
+
+      if (bonus === 0) {
+        results.push({
+          member_id: user._id,
+          name: user.first_name,
+          bonus: 0,
+          skipped: true,
+          reason: 'Percentage of 0 points',
+        });
+        continue;
+      }
+
+      const score = await MonthlyScore.findOneAndUpdate(
+        { member_id: user._id, month },
+        {
+          $inc: {
+            total_points: bonus,
+            bonus_points: bonus,
+          },
+          $setOnInsert: {
+            member_id: user._id,
+            month,
+            regular_points: 0,
+            special_points: 0,
+            meetup_points: 0,
+            manual_adjustments: 0,
+          },
+        },
+        { upsert: true, new: true }
+      );
+
+      results.push({
+        member_id: user._id,
+        name: user.first_name,
+        bonus,
+        new_total: score.total_points,
+        new_bonus: score.bonus_points,
+      });
+
+      if (send_notification && user.telegram_id) {
+        notificationQueue.push({ user, bonus, newTotal: score.total_points });
+      }
+    }
+
+    // Telegram notifications
+    if (send_notification && notificationQueue.length > 0) {
+      const monthLabel = new Date(`${month}-01`).toLocaleString('en-IN', {
+        month: 'long',
+        year: 'numeric',
+      });
+      for (const { user, bonus, newTotal } of notificationQueue) {
+        try {
+          await notificationService.sendNotification({
+            memberId: user._id,
+            telegramId: user.telegram_id,
+            type: 'BONUS_POINTS',
+            title: '🎁 Bonus Points Received!',
+            message: `🎁 *Bonus Points Awarded!*\n\n👤 Admin ne aapko *+${bonus}* bonus points diye hain.\n\n📅 Month: ${monthLabel}\n💰 New Total: *${newTotal}*\n📝 Reason: ${finalReason}\n\nKeep it up! 🔥`,
+            data: {
+              bonus,
+              month,
+              reason: finalReason,
+              action: 'view_leaderboard',
+            },
+            adminId: req.admin._id,
+          });
+        } catch (notifErr) {
+          console.error(`Notification failed for ${user._id}:`, notifErr.message);
+        }
+      }
+    }
+
+    await AuditLog.create({
+      admin_id: req.admin._id,
+      action: 'BULK_ADJUST_POINTS',
+      target_type: 'MEMBER',
+      target_id: null,
+      new_value: {
+        member_count: member_ids.length,
+        type,
+        amount: numAmount,
+        month,
+        reason: finalReason,
+        preset,
+        notified: send_notification ? notificationQueue.length : 0,
+        results: results.map((r) => ({
+          id: r.member_id,
+          bonus: r.bonus,
+          skipped: r.skipped || false,
+        })),
+      },
+    });
+
+    const applied = results.filter((r) => !r.skipped).length;
+    const skipped = results.filter((r) => r.skipped).length;
+
+    res.json({
+      success: true,
+      message: `Bonus applied to ${applied} member(s)${skipped > 0 ? `, ${skipped} skipped` : ''}`,
+      applied,
+      skipped,
+      notified: send_notification ? notificationQueue.length : 0,
+      month,
+      type,
+      amount: numAmount,
+      results,
+    });
+  } catch (error) {
+    console.error('bulkAdjustMemberPoints error:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+};
+
+// ═══════════════════════════════════════════
 // ADMIN: GET MEMBER POINTS BREAKDOWN
 // ═══════════════════════════════════════════
 const getMemberPointsBreakdown = async (req, res) => {
@@ -3737,6 +3929,7 @@ module.exports = {
   getMemberDetail,
   updateMemberDetail,
   adjustMemberPoints,
+  bulkAdjustMemberPoints,
   getMemberPointsBreakdown,
   listActivities,
   approveActivity,
