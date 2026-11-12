@@ -49,6 +49,59 @@ exports.getUserProfile = async (req, res) => {
 };
 
 // ═══════════════════════════════════════════
+// ✅ NEW: UPDATE MEMBER PROFILE (Profile.jsx saves via this)
+// ═══════════════════════════════════════════
+exports.updateMemberProfile = async (req, res) => {
+  try {
+    const {
+      full_name,
+      telegram_username,
+      telegram_url, // ✅ NEW
+      xiaomi_id,
+      whatsapp_number,
+      instagram_url,
+      facebook_url,
+      x_twitter_url,
+    } = req.body;
+
+    const user = await User.findById(req.user._id);
+    if (!user) {
+      return res.status(404).json({ success: false, error: 'User not found' });
+    }
+
+    const profile = await MemberProfile.findOne({ user_id: req.user._id });
+    if (!profile) {
+      return res.status(404).json({ success: false, error: 'Profile not found' });
+    }
+
+    // Fields update karo
+    if (full_name) profile.full_name = full_name.trim();
+    if (telegram_username !== undefined) profile.telegram_username = telegram_username.trim();
+    if (telegram_url !== undefined) profile.telegram_url = telegram_url.trim(); // ✅ NEW
+    if (xiaomi_id) profile.xiaomi_id = xiaomi_id.trim();
+    if (whatsapp_number) profile.whatsapp_number = whatsapp_number.trim();
+    if (instagram_url !== undefined) profile.instagram_url = instagram_url.trim();
+    if (facebook_url !== undefined) profile.facebook_url = facebook_url.trim();
+    if (x_twitter_url !== undefined) profile.x_twitter_url = x_twitter_url.trim();
+
+    await profile.save();
+
+    // User model mein bhi name update karo
+    if (full_name) {
+      const nameParts = full_name.trim().split(' ');
+      user.first_name = nameParts[0] || '';
+      user.last_name = nameParts.slice(1).join(' ') || '';
+      await user.save();
+    }
+
+    res.json({ success: true, profile });
+  } catch (error) {
+    console.error('Update profile error:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+};
+
+// ═══════════════════════════════════════════
 // GET LEADERBOARD (Points-based)
 // Supports: ?range=month (default) | ?range=all | ?range=YYYY-MM
 // ═══════════════════════════════════════════
@@ -161,7 +214,6 @@ exports.getLeaderboard = async (req, res) => {
         });
     }
 
-    // ✅ Consistent response format
     res.json({
       success: true,
       month: resolved.type === 'all' ? 'all' : resolved.month,

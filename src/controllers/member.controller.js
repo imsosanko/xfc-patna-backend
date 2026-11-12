@@ -43,8 +43,14 @@ const getProfile = async (req, res) => {
 const createOrUpdateProfile = async (req, res) => {
   try {
     const {
-      full_name, telegram_username, xiaomi_id, whatsapp_number,
-      instagram_url, facebook_url, x_twitter_url,
+      full_name, 
+      telegram_username, 
+      telegram_url, // ✅ NEW ADDED
+      xiaomi_id, 
+      whatsapp_number,
+      instagram_url, 
+      facebook_url, 
+      x_twitter_url,
     } = req.body;
 
     if (!full_name || !xiaomi_id || !whatsapp_number) {
@@ -66,8 +72,10 @@ const createOrUpdateProfile = async (req, res) => {
     let profile = await MemberProfile.findOne({ user_id: req.user._id });
 
     if (profile) {
+      // Update existing
       profile.full_name = full_name;
       profile.telegram_username = telegram_username || req.user.telegram_username || '';
+      profile.telegram_url = telegram_url || ''; // ✅ NEW ADDED
       profile.xiaomi_id = xiaomi_id;
       profile.whatsapp_number = cleanWhatsApp;
       profile.instagram_url = instagram_url || '';
@@ -75,10 +83,12 @@ const createOrUpdateProfile = async (req, res) => {
       profile.x_twitter_url = x_twitter_url || '';
       await profile.save();
     } else {
+      // Create new
       profile = await MemberProfile.create({
         user_id: req.user._id,
         full_name,
         telegram_username: telegram_username || req.user.telegram_username || '',
+        telegram_url: telegram_url || '', // ✅ NEW ADDED
         xiaomi_id,
         whatsapp_number: cleanWhatsApp,
         instagram_url: instagram_url || '',

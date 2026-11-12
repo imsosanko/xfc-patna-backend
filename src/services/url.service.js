@@ -60,6 +60,11 @@ const detectPlatform = (url) => {
   if (lower.includes('instagram.com')) return 'Instagram';
   if (lower.includes('facebook.com')) return 'Facebook';
   
+  // ✅ NEW: Telegram (Channel, Group, Profile, Message sab handle karega)
+  if (lower.includes('t.me') || lower.includes('telegram.me') || lower.includes('telegram.org')) {
+    return 'Telegram';
+  }
+  
   return 'Other';
 };
 
