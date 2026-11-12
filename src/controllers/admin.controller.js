@@ -3919,6 +3919,33 @@ const exportLeaderboard = async (req, res) => {
 };
 
 // ═══════════════════════════════════════════
+// ✅ NEW: DAILY ACTIVITY PLATFORM SETTINGS
+// ═══════════════════════════════════════════
+const getDailyActivitySettings = async (req, res) => {
+  try {
+    const setting = await SystemSetting.findOne({ key: 'daily_activity_platforms' });
+    const defaults = { X: true, Instagram: true, Facebook: true, Telegram: false };
+    res.json({ success: true, settings: setting ? setting.value : defaults });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+};
+
+const updateDailyActivitySettings = async (req, res) => {
+  try {
+    const { settings } = req.body;
+    await SystemSetting.findOneAndUpdate(
+      { key: 'daily_activity_platforms' },
+      { value: settings, updated_at: new Date() },
+      { upsert: true, new: true }
+    );
+    res.json({ success: true, message: 'Settings updated' });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+};
+
+// ═══════════════════════════════════════════
 // EXPORTS
 // ═══════════════════════════════════════════
 module.exports = {
@@ -3987,4 +4014,7 @@ module.exports = {
   // Export functions
   exportMemberActivities,
   exportLeaderboard,
+
+  getDailyActivitySettings,   // ✅ YEH ADD KARO
+  updateDailyActivitySettings, // ✅ YEH ADD KARO
 };

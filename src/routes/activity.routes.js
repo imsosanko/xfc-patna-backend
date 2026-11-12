@@ -4,25 +4,15 @@ const { protect } = require('../middlewares/telegramAuth');
 const { 
   submitActivity, 
   submitBulk, 
-  getMyActivities 
+  getMyActivities,
+  getActivitySettings 
 } = require('../controllers/activity.controller');
 
-/**
- * POST /api/activities
- * Single activity submit karo
- */
+// ✅ Settings fetch route (must be above dynamic routes)
+router.get('/settings', getActivitySettings);
+
 router.post('/', protect, submitActivity);
-
-/**
- * POST /api/activities/bulk
- * Multiple activities ek saath submit karo (no fixed limit)
- */
 router.post('/bulk', protect, submitBulk);
-
-/**
- * GET /api/activities
- * Member ki apni activities
- */
 router.get('/', protect, getMyActivities);
 
 module.exports = router;

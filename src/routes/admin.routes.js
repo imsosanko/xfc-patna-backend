@@ -64,6 +64,9 @@ const {
   // ⬅️ NAYE EXPORTS
   exportMemberActivities,
   exportLeaderboard,
+  // ✅ NEW: Daily Activity Settings
+  getDailyActivitySettings,
+  updateDailyActivitySettings,
 } = require('../controllers/admin.controller');
 const {
   getMe,
@@ -125,6 +128,10 @@ router.patch('/activities/:id/approve', adminProtect, approveActivity);
 router.patch('/activities/:id/reject', adminProtect, rejectActivity);
 router.post('/activities/bulk-approve', adminProtect, bulkApprove);
 router.post('/activities/bulk-reject', adminProtect, bulkReject);
+
+// ✅ NEW: DAILY ACTIVITY SETTINGS (ON/OFF platforms)
+router.get('/daily-activity-settings', adminProtect, getDailyActivitySettings);
+router.patch('/daily-activity-settings', adminProtect, updateDailyActivitySettings);
 
 // ═══════════════════════════════════════════
 // AUTO-VERIFICATION
