@@ -1,6 +1,6 @@
-{
+﻿{
   "name": "xfc-patna-backend",
-  "version": "1.2.0",
+  "version": "1.4.0",
   "description": "XFC Patna Telegram Mini App Backend - Members Activity Portal",
   "main": "server.js",
   "scripts": {
@@ -44,3 +44,4 @@
     "node": ">=20.x"
   }
 }
+
