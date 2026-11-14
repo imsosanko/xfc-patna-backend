@@ -14,8 +14,9 @@ const { formatDateIST } = require('../services/points.service');
 // ═══════════════════════════════════════════
 const calcItemPoints = (activity, totalItems) => {
   if (!totalItems || totalItems === 0) return 0;
-  const totalRequired = activity.min_total_links || 1;
-  return Math.round((activity.special_points / totalRequired) * 100) / 100;
+  
+  // ✅ FIX: Distribute points evenly based on total submitted items (so total doesn't exceed special_points)
+  return Math.round((activity.special_points / totalItems) * 100) / 100;
 };
 
 // ═══════════════════════════════════════════
