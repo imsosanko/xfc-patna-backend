@@ -15,7 +15,7 @@ const Notification = require('../models/Notification');
 const SpecialActivity = require('../models/SpecialActivity');
 const SpecialSubmission = require('../models/SpecialSubmission');
 const notificationService = require('../services/notification.service');
-const { generateMeetupAttendancePDF } = require('../services/pdf.service');
+const { generateMeetupAttendancePDF, generateMeetupRegistrationPDF } = require('../services/pdf.service');
 const {
   formatDateIST,
   getYesterdayIST,
@@ -2974,9 +2974,122 @@ const updateBroadcast = async (req, res) => {
 };
 
 // ═══════════════════════════════════════════
+// NEW: GET BROADCAST TEMPLATES
+// ═══════════════════════════════════════════
+const getBroadcastTemplates = async (req, res) => {
+  try {
+    const specials = await SpecialActivity.find({ status: 'OPEN' }).sort({ createdAt: -1 }).limit(5).lean();
+    const meetups = await Meetup.find({ status: 'PUBLISHED', date: { $gte: new Date() } }).sort({ date: 1 }).limit(5).lean();
+
+    const templates = [];
+
+    specials.forEach((s) => {
+      templates.push({
+        id: `special_${s._id}`,
+        type: 'SPECIAL',
+        title: `🔥 ${s.title}`,
+        message: `🔥 *${s.title}* is LIVE now!\n\n🏆 ${s.special_points} points up for grabs!\n\n📝 Submit your links and climb the leaderboard!\n\n⏰ Ends: ${new Date(s.end_date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}`,
+      });
+    });
+
+    meetups.forEach((m) => {
+      templates.push({
+        id: `meetup_${m._id}`,
+        type: 'MEETUP',
+        title: `📍 Meetup Alert: ${m.title}`,
+        message: `📍 *${m.title}*\n\n🗓️ Date: ${new Date(m.date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}\n🕐 Time: ${new Date(m.date).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}\n📍 Venue: ${m.venue}\n\nSee you there! 🚀`,
+      });
+    });
+
+    res.json({ success: true, templates });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+};
+
+// ═══════════════════════════════════════════
+// NEW: DELETE MEETUP RSVP
+// ═══════════════════════════════════════════
+const deleteMeetupRSVP = async (req, res) => {
+  try {
+    const { id, rsvpId } = req.params;
+    const rsvp = await MeetupRSVP.findById(rsvpId);
+    if (!rsvp) return res.status(404).json({ success: false, error: 'Registration not found' });
+
+    await MeetupRSVP.findByIdAndDelete(rsvpId);
+    await MeetupAttendance.findOneAndDelete({ meetup_id: id, member_id: rsvp.member_id });
+    await Meetup.findByIdAndUpdate(id, { $inc: { total_rsvps: -1 } });
+
+    await AuditLog.create({ admin_id: req.admin._id, action: 'DELETE_MEETUP_RSVP', target_type: 'MEETUP_RSVP', target_id: rsvpId });
+    res.json({ success: true, message: 'Registration deleted' });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+};
+
+// ═══════════════════════════════════════════
+// NEW: DOWNLOAD REGISTRATION PDF
+// ═══════════════════════════════════════════
+const downloadMeetupRegistrationPDF = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const meetup = await Meetup.findById(id).lean();
+    if (!meetup) return res.status(404).json({ success: false, error: 'Meetup not found' });
+
+    const rsvps = await MeetupRSVP.find({ meetup_id: id }).sort({ createdAt: 1 }).populate('member_id', 'first_name last_name telegram_username').lean();
+
+    const enriched = await Promise.all(rsvps.map(async (r) => {
+      const profile = await MemberProfile.findOne({ user_id: r.member_id }).lean();
+      return {
+        member_name: profile?.full_name || r.member_id?.first_name || 'Unknown',
+        xiaomi_id: profile?.xiaomi_id || 'N/A',
+        whatsapp_number: profile?.whatsapp_number || 'N/A',
+        telegram_username: r.member_id?.telegram_username || '',
+        rsvp_status: r.rsvp_status, guest_count: r.guest_count || 0,
+      };
+    }));
+
+    const pdfBuffer = await generateMeetupRegistrationPDF(meetup, enriched);
+    const safeTitle = meetup.title.replace(/[^a-z0-9]/gi, '-').toLowerCase();
+    
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="xfc-registration-${safeTitle}.pdf"`);
+    res.send(pdfBuffer);
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+};
+
+// ═══════════════════════════════════════════
+// NEW: DAILY ACTIVITY SETTINGS
+// ═══════════════════════════════════════════
+const getDailyActivitySettings = async (req, res) => {
+  try {
+    const setting = await SystemSetting.findOne({ key: 'daily_activity_platforms' });
+    const defaults = { X: true, Instagram: true, Facebook: true, Telegram: false };
+    res.json({ success: true, settings: setting ? setting.value : defaults });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+};
+
+const updateDailyActivitySettings = async (req, res) => {
+  try {
+    const { settings } = req.body;
+    await SystemSetting.findOneAndUpdate(
+      { key: 'daily_activity_platforms' },
+      { value: settings, updated_at: new Date() },
+      { upsert: true, new: true }
+    );
+    res.json({ success: true, message: 'Settings updated' });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+};
+
+// ═══════════════════════════════════════════
 // BADGE MANAGER
 // ═══════════════════════════════════════════
-
 const BADGES_CATALOG = {
   streak: [
     { code: 'WEEK_WARRIOR',      title: 'Week Warrior',       emoji: '🔥', streak_days: 7 },
@@ -3239,7 +3352,6 @@ const removeBadgeFromUser = async (req, res) => {
 // ═══════════════════════════════════════════
 // AUTO-VERIFICATION — ADMIN CONTROLS
 // ═══════════════════════════════════════════
-
 const getAutoVerifySettings = async (req, res) => {
   try {
     const autoVerifyService = require('../services/autoVerify.service');
@@ -3511,7 +3623,6 @@ const getDateRangeForLeaderboard = async (range, from, to) => {
     }
     endDate = new Date(now.getFullYear(), now.getMonth() + 1, 1);
   } else if (range === 'manual' && from && to) {
-    // ✅ FIX #1: setDate instead of setMonth (avoid +1 month bug)
     startDate = new Date(from);
     endDate = new Date(to);
     endDate.setDate(endDate.getDate() + 1);
@@ -3540,7 +3651,6 @@ const getAdminLeaderboard = async (req, res) => {
   try {
     const { range = 'month', from, to } = req.query;
 
-    // ✅ FIX #4: Manual range guard
     if (range === 'manual' && (!from || !to)) {
       return res.status(400).json({
         success: false,
@@ -3651,7 +3761,6 @@ const getMemberActivitiesReport = async (req, res) => {
       }
     }
 
-    // ✅ FIX #2: Accurate stats using countDocuments
     const [activities, totalCount] = await Promise.all([
       Activity.find(query)
         .sort({ submitted_at: -1 })
@@ -3755,7 +3864,6 @@ const exportMemberActivities = async (req, res) => {
     const profile = await MemberProfile.findOne({ user_id: id }).lean();
     const query = { member_id: id };
 
-    // ✅ FIX #3: Manual range guard
     if (range === 'manual' && (!from || !to)) {
       return res.status(400).json({
         success: false,
@@ -3836,7 +3944,6 @@ const exportLeaderboard = async (req, res) => {
   try {
     const { range = 'month', from, to, format } = req.query;
 
-    // ✅ FIX #5: Manual range guard
     if (range === 'manual' && (!from || !to)) {
       return res.status(400).json({
         success: false,
@@ -3919,67 +4026,6 @@ const exportLeaderboard = async (req, res) => {
 };
 
 // ═══════════════════════════════════════════
-// ✅ NEW: DAILY ACTIVITY PLATFORM SETTINGS
-// ═══════════════════════════════════════════
-const getDailyActivitySettings = async (req, res) => {
-  try {
-    const setting = await SystemSetting.findOne({ key: 'daily_activity_platforms' });
-    const defaults = { X: true, Instagram: true, Facebook: true, Telegram: false };
-    res.json({ success: true, settings: setting ? setting.value : defaults });
-  } catch (error) {
-    res.status(500).json({ success: false, error: error.message });
-  }
-};
-
-const updateDailyActivitySettings = async (req, res) => {
-  try {
-    const { settings } = req.body;
-    await SystemSetting.findOneAndUpdate(
-      { key: 'daily_activity_platforms' },
-      { value: settings, updated_at: new Date() },
-      { upsert: true, new: true }
-    );
-    res.json({ success: true, message: 'Settings updated' });
-  } catch (error) {
-    res.status(500).json({ success: false, error: error.message });
-  }
-};
-
-// ═══════════════════════════════════════════
-// ✅ NEW: GET BROADCAST TEMPLATES
-// ═══════════════════════════════════════════
-const getBroadcastTemplates = async (req, res) => {
-  try {
-    const specials = await SpecialActivity.find({ status: 'OPEN' }).sort({ createdAt: -1 }).limit(5).lean();
-    const meetups = await Meetup.find({ status: 'PUBLISHED', date: { $gte: new Date() } }).sort({ date: 1 }).limit(5).lean();
-
-    const templates = [];
-
-    specials.forEach((s) => {
-      templates.push({
-        id: `special_${s._id}`,
-        type: 'SPECIAL',
-        title: `🔥 ${s.title}`,
-        message: `🔥 *${s.title}* is LIVE now!\n\n🏆 ${s.special_points} points up for grabs!\n\n📝 Submit your links and climb the leaderboard!\n\n⏰ Ends: ${new Date(s.end_date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}`,
-      });
-    });
-
-    meetups.forEach((m) => {
-      templates.push({
-        id: `meetup_${m._id}`,
-        type: 'MEETUP',
-        title: `📍 Meetup Alert: ${m.title}`,
-        message: `📍 *${m.title}*\n\n🗓️ Date: ${new Date(m.date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}\n🕐 Time: ${new Date(m.date).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}\n📍 Venue: ${m.venue}\n\nSee you there! 🚀`,
-      });
-    });
-
-    res.json({ success: true, templates });
-  } catch (error) {
-    res.status(500).json({ success: false, error: error.message });
-  }
-};
-
-// ═══════════════════════════════════════════
 // EXPORTS
 // ═══════════════════════════════════════════
 module.exports = {
@@ -4018,7 +4064,6 @@ module.exports = {
   downloadMeetupAttendancePDF,
 
   broadcastToMembers,
-  getBroadcastTemplates,
   getBroadcastHistory,
   deleteBroadcast,
   updateBroadcast,
@@ -4050,6 +4095,10 @@ module.exports = {
   exportMemberActivities,
   exportLeaderboard,
 
-  getDailyActivitySettings,   // ✅ YEH ADD KARO
-  updateDailyActivitySettings, // ✅ YEH ADD KARO
+  // ✅ NEW ADDITIONS
+  getBroadcastTemplates,
+  deleteMeetupRSVP,
+  downloadMeetupRegistrationPDF,
+  getDailyActivitySettings,
+  updateDailyActivitySettings,
 };

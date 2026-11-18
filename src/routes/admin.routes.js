@@ -40,7 +40,6 @@ const {
   editMemberRSVP,
   downloadMeetupAttendancePDF,
   broadcastToMembers,
-  getBroadcastTemplates,
   getBroadcastHistory,
   deleteBroadcast,
   updateBroadcast,
@@ -62,10 +61,13 @@ const {
   getAdminLeaderboard,
   getMemberActivitiesReport,
   getMemberHeatmap,
-  // ⬅️ NAYE EXPORTS
+  // Exports
   exportMemberActivities,
   exportLeaderboard,
-  // ✅ NEW: Daily Activity Settings
+  // ✅ NEW
+  deleteMeetupRSVP,
+  downloadMeetupRegistrationPDF,
+  getBroadcastTemplates,
   getDailyActivitySettings,
   updateDailyActivitySettings,
 } = require('../controllers/admin.controller');
@@ -130,7 +132,7 @@ router.patch('/activities/:id/reject', adminProtect, rejectActivity);
 router.post('/activities/bulk-approve', adminProtect, bulkApprove);
 router.post('/activities/bulk-reject', adminProtect, bulkReject);
 
-// ✅ NEW: DAILY ACTIVITY SETTINGS (ON/OFF platforms)
+// ✅ NEW: Daily Activity Settings
 router.get('/daily-activity-settings', adminProtect, getDailyActivitySettings);
 router.patch('/daily-activity-settings', adminProtect, updateDailyActivitySettings);
 
@@ -183,6 +185,9 @@ router.patch('/meetups/:id/rsvps/:rsvp_id/x-link/review', adminProtect, reviewXL
 router.patch('/meetups/:id/rsvps/:rsvp_id/instagram-link/review', adminProtect, reviewInstagramLink);
 router.patch('/meetups/:id/rsvps/:rsvp_id', adminProtect, editMemberRSVP);
 router.get('/meetups/:id/attendance-pdf', adminProtect, downloadMeetupAttendancePDF);
+// ✅ NEW Meetup Routes
+router.delete('/meetups/:id/rsvps/:rsvpId', adminProtect, deleteMeetupRSVP);
+router.get('/meetups/:id/registration-pdf', adminProtect, downloadMeetupRegistrationPDF);
 
 // ═══════════════════════════════════════════
 // BADGE MANAGER
@@ -199,8 +204,9 @@ router.delete('/badges/users/:id/remove/:badge_code', adminProtect, requirePermi
 router.post('/broadcast/delete', adminProtect, deleteBroadcast);
 router.post('/broadcast/update', adminProtect, updateBroadcast);
 router.get('/broadcast/history', adminProtect, getBroadcastHistory);
-router.get('/broadcast/templates', adminProtect, getBroadcastTemplates); // ✅ YEH ADD KARO
 router.post('/broadcast', adminProtect, broadcastToMembers);
+// ✅ NEW Broadcast Route
+router.get('/broadcast/templates', adminProtect, getBroadcastTemplates);
 
 // ═══════════════════════════════════════════
 // DATA EXPORTS

@@ -2,7 +2,7 @@ const crypto = require('crypto');
 const Activity = require('../models/Activity');
 const DailySummary = require('../models/DailySummary');
 const MemberProfile = require('../models/MemberProfile');
-const SystemSetting = require('../models/SystemSetting'); // ✅ NEW
+const SystemSetting = require('../models/SystemSetting');
 const {
   getUrlHash,
   normalizeUrl,
@@ -13,22 +13,25 @@ const { formatDateIST } = require('../services/points.service');
 const { shouldAutoVerify } = require('../services/autoVerify.service');
 const notificationService = require('../services/notification.service');
 
-// ✅ NEW: Default settings
+// ✅ Default settings
 const DEFAULT_PLATFORM_SETTINGS = {
   X: true,
   Instagram: true,
   Facebook: true,
-  Telegram: false, 
+  Telegram: false,
 };
 
-// ✅ NEW: Fetch settings for member app
+// ✅ Helper: merge stored settings with defaults (defensive)
+const getPlatformSettings = async () => {
+  const settingDoc = await SystemSetting.findOne({ key: 'daily_activity_platforms' });
+  return { ...DEFAULT_PLATFORM_SETTINGS, ...(settingDoc?.value || {}) };
+};
+
+// ✅ Fetch settings for member app
 const getActivitySettings = async (req, res) => {
   try {
-    const setting = await SystemSetting.findOne({ key: 'daily_activity_platforms' });
-    res.json({
-      success: true,
-      settings: setting ? setting.value : DEFAULT_PLATFORM_SETTINGS,
-    });
+    const settings = await getPlatformSettings();
+    res.json({ success: true, settings });
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
   }
@@ -36,11 +39,7 @@ const getActivitySettings = async (req, res) => {
 
 const submitActivity = async (req, res) => {
   try {
-    const { url, activity_type, platform } = req.body;
-
-    // ✅ Fetch Admin Settings
-    const settingDoc = await SystemSetting.findOne({ key: 'daily_activity_platforms' });
-    const platformSettings = settingDoc ? settingDoc.value : DEFAULT_PLATFORM_SETTINGS;
+    const { url, activity_type } = req.body;
 
     const profile = await MemberProfile.findOne({ user_id: req.user._id });
     if (!profile) {
@@ -51,17 +50,28 @@ const submitActivity = async (req, res) => {
       return res.status(400).json({ success: false, error: 'Invalid URL' });
     }
 
-    const urlHash = getUrlHash(url);
-    const normalizedUrl = normalizeUrl(url);
-    const detectedPlatform = platform || detectPlatform(url);
+    // ✅ FIX 1: Trust the URL, not the client-supplied platform
+    const detectedPlatform = detectPlatform(url);
 
-    // ✅ Platform Validation
-    if (!platformSettings[detectedPlatform]) {
-      return res.status(400).json({ 
-        success: false, 
-        error: `${detectedPlatform} submissions are currently disabled by admin.` 
+    // ✅ FIX 2: Explicit null check for unsupported platforms
+    if (!detectedPlatform) {
+      return res.status(400).json({
+        success: false,
+        error: 'Unsupported platform. Only X, Instagram, Facebook, Telegram links are allowed.',
       });
     }
+
+    // ✅ FIX 3: Merge with defaults
+    const platformSettings = await getPlatformSettings();
+    if (!platformSettings[detectedPlatform]) {
+      return res.status(400).json({
+        success: false,
+        error: `${detectedPlatform} submissions are currently disabled by admin.`,
+      });
+    }
+
+    const urlHash = getUrlHash(url);
+    const normalizedUrl = normalizeUrl(url);
 
     const existing = await Activity.findOne({ member_id: req.user._id, url_hash: urlHash });
     if (existing) {
@@ -123,9 +133,6 @@ const submitBulk = async (req, res) => {
   try {
     const { activities } = req.body;
 
-    const settingDoc = await SystemSetting.findOne({ key: 'daily_activity_platforms' });
-    const platformSettings = settingDoc ? settingDoc.value : DEFAULT_PLATFORM_SETTINGS;
-
     const profile = await MemberProfile.findOne({ user_id: req.user._id });
     if (!profile) return res.status(403).json({ success: false, error: 'Please complete your profile first' });
 
@@ -135,6 +142,9 @@ const submitBulk = async (req, res) => {
     if (activities.length > 100) {
       return res.status(400).json({ success: false, error: 'Maximum 100 links allowed per request' });
     }
+
+    // ✅ FIX 3: Merge with defaults
+    const platformSettings = await getPlatformSettings();
 
     const results = {
       submitted: 0, duplicates: 0, invalid: 0, auto_approved: 0, pending: 0, errors: [], submittedActivities: [],
@@ -149,16 +159,23 @@ const submitBulk = async (req, res) => {
         continue;
       }
 
-      const urlHash = getUrlHash(item.url);
-      const normalizedUrl = normalizeUrl(item.url);
       const detectedPlatform = detectPlatform(item.url);
 
-      // ✅ Platform Validation
+      // ✅ FIX 2: Explicit null check
+      if (!detectedPlatform) {
+        results.invalid++;
+        results.errors.push({ url: item.url, error: 'Unsupported platform' });
+        continue;
+      }
+
       if (!platformSettings[detectedPlatform]) {
         results.invalid++;
         results.errors.push({ url: item.url, error: `${detectedPlatform} is currently disabled` });
         continue;
       }
+
+      const urlHash = getUrlHash(item.url);
+      const normalizedUrl = normalizeUrl(item.url);
 
       const exists = await Activity.findOne({ member_id: req.user._id, url_hash: urlHash });
       if (exists) {
@@ -253,5 +270,5 @@ module.exports = {
   submitActivity,
   submitBulk,
   getMyActivities,
-  getActivitySettings, // ✅ NEW
+  getActivitySettings,
 };

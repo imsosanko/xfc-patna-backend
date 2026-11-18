@@ -156,12 +156,7 @@ const listSpecialActivities = async (req, res) => {
           SpecialSubmission.countDocuments({ special_activity_id: act._id, status: { $in: ['SUBMITTED', 'UNDER_REVIEW'] } }),
         ]);
 
-        return {
-          ...act.toObject(),
-          submissionCount,
-          approvedCount,
-          pendingCount,
-        };
+        return { ...act.toObject(), submissionCount, approvedCount, pendingCount };
       })
     );
 
@@ -181,9 +176,7 @@ const getSpecialActivity = async (req, res) => {
       .populate('created_by', 'name email')
       .populate('linked_meetup_id', 'title date venue banner_url');
 
-    if (!activity) {
-      return res.status(404).json({ success: false, error: 'Special activity not found' });
-    }
+    if (!activity) return res.status(404).json({ success: false, error: 'Special activity not found' });
 
     const submissions = await SpecialSubmission.find({ special_activity_id: id })
       .sort({ createdAt: 1 })
@@ -232,38 +225,26 @@ const updateSpecialActivity = async (req, res) => {
 
     delete updates.status;
 
-    // ✅ YEH ADD KARO: Force number banane ke liye
     if (updates.min_total_links !== undefined) {
       updates.min_total_links = parseInt(updates.min_total_links) || 1;
     }
 
     if (updates.activity_type) {
       const validTypes = ['NORMAL', 'MEETUP_LAUNCH_LINKED', 'MEETUP_LAUNCH_LABEL'];
-      if (!validTypes.includes(updates.activity_type)) {
-        delete updates.activity_type;
-      }
+      if (!validTypes.includes(updates.activity_type)) delete updates.activity_type;
     }
 
     if (updates.activity_type === 'MEETUP_LAUNCH_LINKED' && updates.linked_meetup_id) {
       const meetupExists = await Meetup.findById(updates.linked_meetup_id);
-      if (!meetupExists) {
-        return res.status(404).json({ success: false, error: 'Selected meetup not found' });
-      }
+      if (!meetupExists) return res.status(404).json({ success: false, error: 'Selected meetup not found' });
     }
 
     if (updates.activity_type && updates.activity_type !== 'MEETUP_LAUNCH_LINKED') {
       updates.linked_meetup_id = null;
     }
 
-    const activity = await SpecialActivity.findByIdAndUpdate(
-      id,
-      { $set: updates },
-      { new: true, runValidators: true }
-    );
-
-    if (!activity) {
-      return res.status(404).json({ success: false, error: 'Special activity not found' });
-    }
+    const activity = await SpecialActivity.findByIdAndUpdate(id, { $set: updates }, { new: true, runValidators: true });
+    if (!activity) return res.status(404).json({ success: false, error: 'Special activity not found' });
 
     await AuditLog.create({
       admin_id: req.admin._id,
@@ -288,14 +269,10 @@ const updateSpecialStatus = async (req, res) => {
     const { status } = req.body;
 
     const validStatuses = ['DRAFT', 'LOCKED', 'OPEN', 'PAUSED', 'CLOSED'];
-    if (!validStatuses.includes(status)) {
-      return res.status(400).json({ success: false, error: 'Invalid status' });
-    }
+    if (!validStatuses.includes(status)) return res.status(400).json({ success: false, error: 'Invalid status' });
 
     const activity = await SpecialActivity.findById(id);
-    if (!activity) {
-      return res.status(404).json({ success: false, error: 'Special activity not found' });
-    }
+    if (!activity) return res.status(404).json({ success: false, error: 'Special activity not found' });
 
     const previousStatus = activity.status;
     activity.status = status;
@@ -326,9 +303,7 @@ const updateSpecialStatus = async (req, res) => {
             adminId: req.admin._id,
           });
         }
-      } catch (notifErr) {
-        console.error('Special campaign notification failed:', notifErr.message);
-      }
+      } catch (notifErr) {}
     }
 
     await AuditLog.create({
@@ -353,11 +328,11 @@ const deleteSpecialActivity = async (req, res) => {
   try {
     const { id } = req.params;
     const activity = await SpecialActivity.findById(id);
-    if (!activity) {
-      return res.status(404).json({ success: false, error: 'Special activity not found' });
-    }
+    if (!activity) return res.status(404).json({ success: false, error: 'Special activity not found' });
+
     await SpecialSubmission.deleteMany({ special_activity_id: id });
     await SpecialActivity.findByIdAndDelete(id);
+
     await AuditLog.create({
       admin_id: req.admin._id,
       action: 'DELETE_SPECIAL_ACTIVITY',
@@ -365,6 +340,7 @@ const deleteSpecialActivity = async (req, res) => {
       target_id: id,
       previous_value: { title: activity.title },
     });
+
     res.json({ success: true, message: 'Deleted successfully' });
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });

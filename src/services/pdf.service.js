@@ -38,29 +38,14 @@ const generateMeetupAttendancePDF = (meetup, rsvps) => {
       // ═══ HEADER ═══
       doc.rect(0, 0, pageWidth, 90).fill('#FF6900');
 
-      doc
-        .fillColor('#FFFFFF')
-        .fontSize(22)
-        .font('Helvetica-Bold')
-        .text('XFC PATNA', leftMargin, 25);
-
-      doc
-        .fontSize(10)
-        .font('Helvetica')
-        .text('Xiaomi Fans Club Patna — Meetup Attendance Report', leftMargin, 55);
-
-      doc
-        .fontSize(8)
-        .text(`Generated: ${formatDate(new Date())}`, leftMargin, 72);
+      doc.fillColor('#FFFFFF').fontSize(22).font('Helvetica-Bold').text('XFC PATNA', leftMargin, 25);
+      doc.fontSize(10).font('Helvetica').text('Xiaomi Fans Club Patna — Meetup Attendance Report', leftMargin, 55);
+      doc.fontSize(8).text(`Generated: ${formatDate(new Date())}`, leftMargin, 72);
 
       // ═══ MEETUP DETAILS ═══
       let y = 115;
 
-      doc
-        .fillColor('#000000')
-        .fontSize(16)
-        .font('Helvetica-Bold')
-        .text(meetup.title, leftMargin, y);
+      doc.fillColor('#000000').fontSize(16).font('Helvetica-Bold').text(meetup.title, leftMargin, y);
 
       y += 28;
 
@@ -103,60 +88,30 @@ const generateMeetupAttendancePDF = (meetup, rsvps) => {
       stats.forEach((stat, i) => {
         const x = leftMargin + i * (boxWidth + 10);
         doc.rect(x, statsY, boxWidth, 55).fillAndStroke('#F9F9F9', '#DDDDDD');
-        doc
-          .fillColor(stat.color)
-          .fontSize(18)
-          .font('Helvetica-Bold')
-          .text(String(stat.value), x, statsY + 10, { width: boxWidth, align: 'center' });
-        doc
-          .fillColor('#666666')
-          .fontSize(8)
-          .font('Helvetica')
-          .text(stat.label, x, statsY + 35, { width: boxWidth, align: 'center' });
+        doc.fillColor(stat.color).fontSize(18).font('Helvetica-Bold').text(String(stat.value), x, statsY + 10, { width: boxWidth, align: 'center' });
+        doc.fillColor('#666666').fontSize(8).font('Helvetica').text(stat.label, x, statsY + 35, { width: boxWidth, align: 'center' });
       });
 
       y = statsY + 75;
 
       // ═══ TABLE ═══
-      doc
-        .fillColor('#000000')
-        .fontSize(12)
-        .font('Helvetica-Bold')
-        .text('Attendance Details', leftMargin, y);
-
+      doc.fillColor('#000000').fontSize(12).font('Helvetica-Bold').text('Attendance Details', leftMargin, y);
       y += 20;
 
-      const colWidths = {
-        no: 25,
-        name: 130,
-        xiaomi: 80,
-        rsvp: 60,
-        physical: 55,
-        x: 55,
-        insta: 55,
-        points: 55,
-      };
+      const colWidths = { no: 25, name: 130, xiaomi: 80, rsvp: 60, physical: 55, x: 55, insta: 55, points: 55 };
 
       const drawHeader = (yPos) => {
         doc.rect(leftMargin, yPos, contentWidth, 22).fill('#333333');
-
         let x = leftMargin + 5;
         doc.fillColor('#FFFFFF').fontSize(8).font('Helvetica-Bold');
 
-        doc.text('#', x, yPos + 7, { width: colWidths.no });
-        x += colWidths.no;
-        doc.text('Member', x, yPos + 7, { width: colWidths.name });
-        x += colWidths.name;
-        doc.text('Xiaomi ID', x, yPos + 7, { width: colWidths.xiaomi });
-        x += colWidths.xiaomi;
-        doc.text('RSVP', x, yPos + 7, { width: colWidths.rsvp });
-        x += colWidths.rsvp;
-        doc.text('Physical', x, yPos + 7, { width: colWidths.physical });
-        x += colWidths.physical;
-        doc.text('X', x, yPos + 7, { width: colWidths.x });
-        x += colWidths.x;
-        doc.text('Insta', x, yPos + 7, { width: colWidths.insta });
-        x += colWidths.insta;
+        doc.text('#', x, yPos + 7, { width: colWidths.no }); x += colWidths.no;
+        doc.text('Member', x, yPos + 7, { width: colWidths.name }); x += colWidths.name;
+        doc.text('Xiaomi ID', x, yPos + 7, { width: colWidths.xiaomi }); x += colWidths.xiaomi;
+        doc.text('RSVP', x, yPos + 7, { width: colWidths.rsvp }); x += colWidths.rsvp;
+        doc.text('Physical', x, yPos + 7, { width: colWidths.physical }); x += colWidths.physical;
+        doc.text('X', x, yPos + 7, { width: colWidths.x }); x += colWidths.x;
+        doc.text('Insta', x, yPos + 7, { width: colWidths.insta }); x += colWidths.insta;
         doc.text('Points', x, yPos + 7, { width: colWidths.points });
 
         return yPos + 22;
@@ -179,36 +134,19 @@ const generateMeetupAttendancePDF = (meetup, rsvps) => {
         let x = leftMargin + 5;
         doc.fillColor('#333333').fontSize(8).font('Helvetica');
 
-        doc.text(String(index + 1), x, y + 6, { width: colWidths.no });
-        x += colWidths.no;
-
-        const name = (r.member_name || 'Unknown').substring(0, 22);
-        doc.text(name, x, y + 6, { width: colWidths.name });
-        x += colWidths.name;
-
-        doc.text(String(r.xiaomi_id || '—').substring(0, 12), x, y + 6, { width: colWidths.xiaomi });
-        x += colWidths.xiaomi;
-
-        doc.text(r.rsvp_status || '—', x, y + 6, { width: colWidths.rsvp });
-        x += colWidths.rsvp;
+        doc.text(String(index + 1), x, y + 6, { width: colWidths.no }); x += colWidths.no;
+        doc.text((r.member_name || 'Unknown').substring(0, 22), x, y + 6, { width: colWidths.name }); x += colWidths.name;
+        doc.text(String(r.xiaomi_id || '—').substring(0, 12), x, y + 6, { width: colWidths.xiaomi }); x += colWidths.xiaomi;
+        doc.text(r.rsvp_status || '—', x, y + 6, { width: colWidths.rsvp }); x += colWidths.rsvp;
 
         const physicalText = r.attendance_status === 'PRESENT' ? 'Present' : 'Absent';
-        doc
-          .fillColor(r.attendance_status === 'PRESENT' ? '#22C55E' : '#999999')
-          .text(physicalText, x, y + 6, { width: colWidths.physical });
-        x += colWidths.physical;
+        doc.fillColor(r.attendance_status === 'PRESENT' ? '#22C55E' : '#999999').text(physicalText, x, y + 6, { width: colWidths.physical }); x += colWidths.physical;
 
         const xStatus = r.x_status === 'APPROVED' ? 'OK' : r.x_status === 'PENDING' ? 'Pend' : r.x_status === 'REJECTED' ? 'Rej' : '—';
-        doc
-          .fillColor(r.x_status === 'APPROVED' ? '#22C55E' : r.x_status === 'PENDING' ? '#EAB308' : r.x_status === 'REJECTED' ? '#EF4444' : '#999999')
-          .text(xStatus, x, y + 6, { width: colWidths.x });
-        x += colWidths.x;
+        doc.fillColor(r.x_status === 'APPROVED' ? '#22C55E' : r.x_status === 'PENDING' ? '#EAB308' : r.x_status === 'REJECTED' ? '#EF4444' : '#999999').text(xStatus, x, y + 6, { width: colWidths.x }); x += colWidths.x;
 
         const igStatus = r.instagram_status === 'APPROVED' ? 'OK' : r.instagram_status === 'PENDING' ? 'Pend' : r.instagram_status === 'REJECTED' ? 'Rej' : '—';
-        doc
-          .fillColor(r.instagram_status === 'APPROVED' ? '#22C55E' : r.instagram_status === 'PENDING' ? '#EAB308' : r.instagram_status === 'REJECTED' ? '#EF4444' : '#999999')
-          .text(igStatus, x, y + 6, { width: colWidths.insta });
-        x += colWidths.insta;
+        doc.fillColor(r.instagram_status === 'APPROVED' ? '#22C55E' : r.instagram_status === 'PENDING' ? '#EAB308' : r.instagram_status === 'REJECTED' ? '#EF4444' : '#999999').text(igStatus, x, y + 6, { width: colWidths.insta }); x += colWidths.insta;
 
         const totalPoints = (r.physical_points || 0) + (r.x_points || 0) + (r.instagram_points || 0);
         doc.fillColor('#FF6900').font('Helvetica-Bold').text(totalPoints.toFixed(2), x, y + 6, { width: colWidths.points });
@@ -221,16 +159,158 @@ const generateMeetupAttendancePDF = (meetup, rsvps) => {
 
       for (let i = 0; i < pageCount; i++) {
         doc.switchToPage(i);
-        doc
-          .fillColor('#999999')
-          .fontSize(7)
-          .font('Helvetica')
-          .text(
-            `XFC Patna · ${meetup.title} · Page ${i + 1} of ${pageCount}`,
-            leftMargin,
-            doc.page.height - 25,
-            { width: contentWidth, align: 'center' }
-          );
+        doc.fillColor('#999999').fontSize(7).font('Helvetica').text(`XFC Patna · ${meetup.title} · Page ${i + 1} of ${pageCount}`, leftMargin, doc.page.height - 25, { width: contentWidth, align: 'center' });
+      }
+
+      doc.end();
+    } catch (err) {
+      reject(err);
+    }
+  });
+};
+
+// ═══════════════════════════════════════════
+// NEW: Generate Meetup Registration PDF
+// ═══════════════════════════════════════════
+const generateMeetupRegistrationPDF = (meetup, rsvps) => {
+  return new Promise((resolve, reject) => {
+    try {
+      const doc = new PDFDocument({
+        size: 'A4',
+        margin: 40,
+        bufferPages: true,
+      });
+
+      const chunks = [];
+      doc.on('data', (chunk) => chunks.push(chunk));
+      doc.on('end', () => resolve(Buffer.concat(chunks)));
+      doc.on('error', reject);
+
+      const pageWidth = doc.page.width;
+      const contentWidth = pageWidth - 80;
+      const leftMargin = 40;
+
+      // ═══ HEADER ═══
+      doc.rect(0, 0, pageWidth, 90).fill('#0088cc');
+
+      doc.fillColor('#FFFFFF').fontSize(22).font('Helvetica-Bold').text('XFC PATNA', leftMargin, 25);
+      doc.fontSize(10).font('Helvetica').text('Meetup Registration List', leftMargin, 55);
+      doc.fontSize(8).text(`Generated: ${formatDate(new Date())}`, leftMargin, 72);
+
+      // ═══ MEETUP DETAILS ═══
+      let y = 115;
+
+      doc.fillColor('#000000').fontSize(16).font('Helvetica-Bold').text(meetup.title, leftMargin, y);
+      y += 28;
+
+      doc.fontSize(10).font('Helvetica').fillColor('#444444');
+
+      const details = [
+        ['Date:', formatDate(meetup.date)],
+        ['Venue:', meetup.venue || '—'],
+        ['Total Points:', `${meetup.points} pts`],
+        ['Total Registrations:', `${rsvps.length}`],
+      ];
+
+      details.forEach(([label, value]) => {
+        doc.font('Helvetica-Bold').fillColor('#000000').text(label, leftMargin, y, { width: 130 });
+        doc.font('Helvetica').fillColor('#333333').text(String(value), leftMargin + 135, y, { width: contentWidth - 135 });
+        y += 16;
+      });
+
+      y += 10;
+
+      // ═══ SUMMARY STATS ═══
+      const registered = rsvps.filter((r) => r.rsvp_status === 'INTERESTED').length;
+      const notGoing = rsvps.filter((r) => r.rsvp_status === 'NOT_GOING').length;
+      const attended = rsvps.filter((r) => r.rsvp_status === 'ATTENDED').length;
+      const totalGuests = rsvps.reduce((sum, r) => sum + (r.guest_count || 0), 0);
+
+      const statsY = y;
+      const stats = [
+        { label: 'Registered', value: registered, color: '#EAB308' },
+        { label: 'Not Going', value: notGoing, color: '#EF4444' },
+        { label: 'Attended', value: attended, color: '#22C55E' },
+        { label: 'Total Guests', value: totalGuests, color: '#3B82F6' },
+      ];
+
+      const boxWidth = (contentWidth - 30) / 4;
+
+      stats.forEach((stat, i) => {
+        const x = leftMargin + i * (boxWidth + 10);
+        doc.rect(x, statsY, boxWidth, 55).fillAndStroke('#F9F9F9', '#DDDDDD');
+        doc.fillColor(stat.color).fontSize(18).font('Helvetica-Bold').text(String(stat.value), x, statsY + 10, { width: boxWidth, align: 'center' });
+        doc.fillColor('#666666').fontSize(8).font('Helvetica').text(stat.label, x, statsY + 35, { width: boxWidth, align: 'center' });
+      });
+
+      y = statsY + 75;
+
+      // ═══ TABLE ═══
+      doc.fillColor('#000000').fontSize(12).font('Helvetica-Bold').text('Registration Details', leftMargin, y);
+      y += 20;
+
+      const colWidths = { no: 25, name: 120, xiaomi: 80, whatsapp: 85, telegram: 80, status: 70, guests: 40 };
+
+      const drawHeader = (yPos) => {
+        doc.rect(leftMargin, yPos, contentWidth, 22).fill('#333333');
+        let x = leftMargin + 5;
+        doc.fillColor('#FFFFFF').fontSize(8).font('Helvetica-Bold');
+
+        doc.text('#', x, yPos + 7, { width: colWidths.no }); x += colWidths.no;
+        doc.text('Member', x, yPos + 7, { width: colWidths.name }); x += colWidths.name;
+        doc.text('Xiaomi ID', x, yPos + 7, { width: colWidths.xiaomi }); x += colWidths.xiaomi;
+        doc.text('WhatsApp', x, yPos + 7, { width: colWidths.whatsapp }); x += colWidths.whatsapp;
+        doc.text('Telegram', x, yPos + 7, { width: colWidths.telegram }); x += colWidths.telegram;
+        doc.text('Status', x, yPos + 7, { width: colWidths.status }); x += colWidths.status;
+        doc.text('Guests', x, yPos + 7, { width: colWidths.guests });
+
+        return yPos + 22;
+      };
+
+      y = drawHeader(y);
+
+      rsvps.forEach((r, index) => {
+        if (y > doc.page.height - 80) {
+          doc.addPage();
+          y = 40;
+          y = drawHeader(y);
+        }
+
+        const rowHeight = 20;
+        const bgColor = index % 2 === 0 ? '#FFFFFF' : '#F5F5F5';
+
+        doc.rect(leftMargin, y, contentWidth, rowHeight).fill(bgColor);
+
+        let x = leftMargin + 5;
+        doc.fillColor('#333333').fontSize(8).font('Helvetica');
+
+        doc.text(String(index + 1), x, y + 6, { width: colWidths.no }); x += colWidths.no;
+        doc.text((r.member_name || 'Unknown').substring(0, 20), x, y + 6, { width: colWidths.name }); x += colWidths.name;
+        doc.text(String(r.xiaomi_id || '—').substring(0, 12), x, y + 6, { width: colWidths.xiaomi }); x += colWidths.xiaomi;
+        doc.text(String(r.whatsapp_number || '—').substring(0, 13), x, y + 6, { width: colWidths.whatsapp }); x += colWidths.whatsapp;
+
+        const tg = r.telegram_username ? `@${r.telegram_username.replace('@', '')}` : '—';
+        doc.text(tg.substring(0, 12), x, y + 6, { width: colWidths.telegram }); x += colWidths.telegram;
+
+        let statusText = r.rsvp_status;
+        if (r.rsvp_status === 'INTERESTED') statusText = 'Registered';
+        else if (r.rsvp_status === 'NOT_GOING') statusText = 'Not Going';
+        else if (r.rsvp_status === 'ATTENDED') statusText = 'Attended';
+
+        const statusColor = r.rsvp_status === 'INTERESTED' ? '#EAB308' : r.rsvp_status === 'NOT_GOING' ? '#EF4444' : '#22C55E';
+          
+        doc.fillColor(statusColor).font('Helvetica-Bold').text(statusText, x, y + 6, { width: colWidths.status }); x += colWidths.status;
+        doc.fillColor('#333333').font('Helvetica').text(String(r.guest_count || 0), x, y + 6, { width: colWidths.guests });
+
+        y += rowHeight;
+      });
+
+      // ═══ FOOTER ═══
+      const pageCount = doc.bufferedPageRange().count;
+
+      for (let i = 0; i < pageCount; i++) {
+        doc.switchToPage(i);
+        doc.fillColor('#999999').fontSize(7).font('Helvetica').text(`XFC Patna · ${meetup.title} · Page ${i + 1} of ${pageCount}`, leftMargin, doc.page.height - 25, { width: contentWidth, align: 'center' });
       }
 
       doc.end();
@@ -242,4 +322,5 @@ const generateMeetupAttendancePDF = (meetup, rsvps) => {
 
 module.exports = {
   generateMeetupAttendancePDF,
+  generateMeetupRegistrationPDF,
 };
