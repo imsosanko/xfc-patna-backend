@@ -3946,6 +3946,40 @@ const updateDailyActivitySettings = async (req, res) => {
 };
 
 // ═══════════════════════════════════════════
+// ✅ NEW: GET BROADCAST TEMPLATES
+// ═══════════════════════════════════════════
+const getBroadcastTemplates = async (req, res) => {
+  try {
+    const specials = await SpecialActivity.find({ status: 'OPEN' }).sort({ createdAt: -1 }).limit(5).lean();
+    const meetups = await Meetup.find({ status: 'PUBLISHED', date: { $gte: new Date() } }).sort({ date: 1 }).limit(5).lean();
+
+    const templates = [];
+
+    specials.forEach((s) => {
+      templates.push({
+        id: `special_${s._id}`,
+        type: 'SPECIAL',
+        title: `🔥 ${s.title}`,
+        message: `🔥 *${s.title}* is LIVE now!\n\n🏆 ${s.special_points} points up for grabs!\n\n📝 Submit your links and climb the leaderboard!\n\n⏰ Ends: ${new Date(s.end_date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}`,
+      });
+    });
+
+    meetups.forEach((m) => {
+      templates.push({
+        id: `meetup_${m._id}`,
+        type: 'MEETUP',
+        title: `📍 Meetup Alert: ${m.title}`,
+        message: `📍 *${m.title}*\n\n🗓️ Date: ${new Date(m.date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}\n🕐 Time: ${new Date(m.date).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}\n📍 Venue: ${m.venue}\n\nSee you there! 🚀`,
+      });
+    });
+
+    res.json({ success: true, templates });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+};
+
+// ═══════════════════════════════════════════
 // EXPORTS
 // ═══════════════════════════════════════════
 module.exports = {
@@ -3984,6 +4018,7 @@ module.exports = {
   downloadMeetupAttendancePDF,
 
   broadcastToMembers,
+  getBroadcastTemplates,
   getBroadcastHistory,
   deleteBroadcast,
   updateBroadcast,

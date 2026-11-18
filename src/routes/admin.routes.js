@@ -40,6 +40,7 @@ const {
   editMemberRSVP,
   downloadMeetupAttendancePDF,
   broadcastToMembers,
+  getBroadcastTemplates,
   getBroadcastHistory,
   deleteBroadcast,
   updateBroadcast,
@@ -198,6 +199,7 @@ router.delete('/badges/users/:id/remove/:badge_code', adminProtect, requirePermi
 router.post('/broadcast/delete', adminProtect, deleteBroadcast);
 router.post('/broadcast/update', adminProtect, updateBroadcast);
 router.get('/broadcast/history', adminProtect, getBroadcastHistory);
+router.get('/broadcast/templates', adminProtect, getBroadcastTemplates); // ✅ YEH ADD KARO
 router.post('/broadcast', adminProtect, broadcastToMembers);
 
 // ═══════════════════════════════════════════
