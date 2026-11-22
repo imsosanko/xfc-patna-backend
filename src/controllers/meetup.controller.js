@@ -3,6 +3,7 @@ const MeetupRSVP = require('../models/MeetupRSVP');
 const MeetupAttendance = require('../models/MeetupAttendance');
 const MemberProfile = require('../models/MemberProfile');
 const User = require('../models/User');
+const { syncMeetupStatuses } = require('../utils/meetupStatus');
 
 // ═══════════════════════════════════════════
 // HELPER: Distance calculate (Haversine formula)
@@ -64,33 +65,24 @@ const enrichRSVP = (rsvp, attendance) => {
 const getMeetups = async (req, res) => {
   try {
     const { status } = req.query;
-    const now = new Date();
+    await syncMeetupStatuses();
 
     let query = {};
+    let sortOrder = -1;
 
     if (status === 'upcoming') {
-      query = {
-        status: { $in: ['PUBLISHED', 'ONGOING'] },
-        date: { $gte: now },
-      };
-    } else if (status === 'past') {
-      query = {
-        status: { $in: ['COMPLETED', 'CANCELLED'] },
-      };
+      query = { status: 'PUBLISHED' };
+      sortOrder = 1; // sabse nazdiki meetup pehle
     } else if (status === 'ongoing') {
-      query = {
-        status: 'ONGOING',
-        date: { $lte: now },
-        end_time: { $gte: now },
-      };
+      query = { status: 'ONGOING' };
+    } else if (status === 'past') {
+      query = { status: { $in: ['COMPLETED', 'CANCELLED'] } };
     } else {
-      query = {
-        status: { $in: ['PUBLISHED', 'ONGOING', 'COMPLETED'] },
-      };
+      query = { status: { $in: ['PUBLISHED', 'ONGOING', 'COMPLETED'] } };
     }
 
     const meetups = await Meetup.find(query)
-      .sort({ date: -1 })
+      .sort({ date: sortOrder })
       .limit(50)
       .lean();
 
@@ -151,6 +143,7 @@ const getMeetups = async (req, res) => {
 const getMeetupDetail = async (req, res) => {
   try {
     const { id } = req.params;
+    await syncMeetupStatuses();
     const meetup = await Meetup.findById(id);
     if (!meetup) {
       return res.status(404).json({ success: false, error: 'Meetup not found' });
@@ -358,6 +351,13 @@ const submitXLink = async (req, res) => {
       return res.status(404).json({ success: false, error: 'Meetup not found' });
     }
 
+    if (meetup.submission_deadline && new Date() > new Date(meetup.submission_deadline)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Link submission time is over for this meetup.',
+      });
+    }
+
     const rsvp = await MeetupRSVP.findOne({
       meetup_id: id,
       member_id: req.user._id,
@@ -425,6 +425,13 @@ const submitInstagramLink = async (req, res) => {
       return res.status(404).json({ success: false, error: 'Meetup not found' });
     }
 
+    if (meetup.submission_deadline && new Date() > new Date(meetup.submission_deadline)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Link submission time is over for this meetup.',
+      });
+    }
+
     const rsvp = await MeetupRSVP.findOne({
       meetup_id: id,
       member_id: req.user._id,
@@ -477,9 +484,17 @@ const selfCheckIn = async (req, res) => {
       });
     }
 
+    await syncMeetupStatuses();
     const meetup = await Meetup.findById(id);
     if (!meetup) {
       return res.status(404).json({ success: false, error: 'Meetup not found' });
+    }
+
+    if (!['PUBLISHED', 'ONGOING'].includes(meetup.status)) {
+      return res.status(400).json({
+        success: false,
+        error: 'This meetup is over. Check-in is closed.',
+      });
     }
 
     if (!meetup.location_locked) {

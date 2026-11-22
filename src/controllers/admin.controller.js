@@ -9,6 +9,7 @@ const MonthlyScore = require('../models/MonthlyScore');
 const SystemSetting = require('../models/SystemSetting');
 const AuditLog = require('../models/AuditLog');
 const Meetup = require('../models/Meetup');
+const { syncMeetupStatuses } = require('../utils/meetupStatus');
 const MeetupRSVP = require('../models/MeetupRSVP');
 const MeetupAttendance = require('../models/MeetupAttendance');
 const Notification = require('../models/Notification');
@@ -79,6 +80,7 @@ const adminLogin = async (req, res) => {
 // ═══════════════════════════════════════════
 const getDashboardStats = async (req, res) => {
   try {
+    await syncMeetupStatuses();
     const today = formatDateIST();
     const currentMonth = today.substring(0, 7);
 
@@ -2077,6 +2079,7 @@ const deleteMeetup = async (req, res) => {
 // ═══════════════════════════════════════════
 const listMeetupsAdmin = async (req, res) => {
   try {
+    await syncMeetupStatuses();
     const { status, page = 1, limit = 50 } = req.query;
     const skip = (parseInt(page) - 1) * parseInt(limit);
 
@@ -2099,6 +2102,7 @@ const listMeetupsAdmin = async (req, res) => {
 // ═══════════════════════════════════════════
 const getMeetupRSVPs = async (req, res) => {
   try {
+    await syncMeetupStatuses();
     const { id } = req.params;
     const { rsvp_status } = req.query;
 
@@ -2163,6 +2167,8 @@ const getMeetupRSVPs = async (req, res) => {
         points: meetup.points,
         status: meetup.status,
         location_locked: meetup.location_locked,
+        end_time: meetup.end_time,
+        submission_deadline: meetup.submission_deadline,
         attendance_weights: meetup.attendance_weights,
       },
       count: enriched.length,
@@ -2179,7 +2185,7 @@ const getMeetupRSVPs = async (req, res) => {
 const lockLocation = async (req, res) => {
   try {
     const { id } = req.params;
-    const { latitude, longitude, radius_meters } = req.body;
+    const { latitude, longitude, radius_meters, accuracy, submission_deadline } = req.body;
 
     const meetup = await Meetup.findById(id);
     if (!meetup) {
@@ -2200,6 +2206,16 @@ const lockLocation = async (req, res) => {
     meetup.location_lat = lat;
     meetup.location_lng = lng;
     meetup.location_radius_meters = radius_meters || meetup.location_radius_meters || 100;
+    meetup.location_accuracy_meters = typeof accuracy === 'number' ? Math.round(accuracy) : null;
+
+    // X + Instagram links ka deadline (optional)
+    if (submission_deadline !== undefined) {
+      const dl = submission_deadline ? new Date(submission_deadline) : null;
+      if (dl && isNaN(dl.getTime())) {
+        return res.status(400).json({ success: false, error: 'Invalid links deadline' });
+      }
+      meetup.submission_deadline = dl;
+    }
     meetup.location_locked = true;
     meetup.location_locked_at = new Date();
     meetup.location_locked_by = req.admin._id;
@@ -2210,7 +2226,7 @@ const lockLocation = async (req, res) => {
       action: 'LOCK_MEETUP_LOCATION',
       target_type: 'MEETUP',
       target_id: id,
-      new_value: { latitude: lat, longitude: lng, radius_meters: meetup.location_radius_meters },
+      new_value: { latitude: lat, longitude: lng, radius_meters: meetup.location_radius_meters, accuracy_meters: meetup.location_accuracy_meters, submission_deadline: meetup.submission_deadline },
     });
 
     res.json({

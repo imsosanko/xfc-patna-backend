@@ -35,6 +35,7 @@ const { startMidnightJob } = require('./src/jobs/midnightProcessor');
 const { startDailyReminderJob } = require('./src/jobs/dailyReminder');
 const { startStreakWarningJob } = require('./src/jobs/streakWarning');
 const { startMeetupReminderJob } = require('./src/jobs/meetupReminder');
+const { syncMeetupStatuses } = require('./src/utils/meetupStatus');
 const { initBot, setWebhook } = require('./src/services/telegramBot.service');
 
 const start = async () => {
@@ -48,6 +49,10 @@ const start = async () => {
     startDailyReminderJob();
     startStreakWarningJob();
     startMeetupReminderJob();
+
+    // Meetup status auto-sync (PUBLISHED -> ONGOING -> COMPLETED), har 1 minute
+    syncMeetupStatuses().catch(console.error);
+    setInterval(() => syncMeetupStatuses().catch(console.error), 60 * 1000);
 
     initBot();
 
