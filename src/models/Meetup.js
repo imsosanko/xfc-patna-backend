@@ -93,6 +93,10 @@ const MeetupSchema = new mongoose.Schema({
     type: Number,
     default: 100,
   },
+  location_accuracy_meters: {
+    type: Number,
+    default: null,
+  },
 
   // ═══════════════════════════════════════════
   // ATTENDANCE SCORE WEIGHTS

@@ -2293,10 +2293,6 @@ const checkInMember = async (req, res) => {
       return res.status(404).json({ success: false, error: 'Meetup not found' });
     }
 
-    if (!meetup.location_locked) {
-      return res.status(400).json({ success: false, error: 'Location is not locked yet. Lock location first.' });
-    }
-
     let member;
     if (member_id) {
       member = await User.findById(member_id);
@@ -2656,6 +2652,245 @@ const editMemberRSVP = async (req, res) => {
         is_locked: rsvp.is_locked,
       },
     });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+};
+
+// ═══════════════════════════════════════════
+// HELPER: Meetup points ko member ke monthly score me add/minus karo
+// ═══════════════════════════════════════════
+const adjustMeetupScore = async (memberId, delta) => {
+  if (!delta) return;
+  const month = formatDateIST().substring(0, 7);
+  let score = await MonthlyScore.findOne({ member_id: memberId, month });
+  if (!score) {
+    score = await MonthlyScore.create({
+      member_id: memberId,
+      month,
+      total_points: 0,
+      regular_points: 0,
+      special_points: 0,
+      meetup_points: 0,
+      manual_adjustments: 0,
+    });
+  }
+  score.total_points = Math.max(0, (score.total_points || 0) + delta);
+  score.meetup_points = Math.max(0, (score.meetup_points || 0) + delta);
+  await score.save();
+};
+
+// ═══════════════════════════════════════════
+// MEETUPS: ADMIN MANUAL OVERRIDE (Physical / X / Instagram)
+// PATCH /admin/meetups/:id/rsvps/:rsvp_id/manual
+// body: { item: 'physical' | 'x' | 'instagram', status, link?, post_type?, reason?, note? }
+//   physical  -> status: PRESENT | ABSENT
+//   x/insta   -> status: APPROVED | PENDING | REJECTED | NOT_SUBMITTED
+// Points automatic: approve par add, approve hatane par minus (double points nahi)
+// ═══════════════════════════════════════════
+const manualUpdateRSVPItem = async (req, res) => {
+  try {
+    const { id, rsvp_id } = req.params;
+    const { item, status, link, post_type, reason, note } = req.body;
+
+    if (!['physical', 'x', 'instagram'].includes(item)) {
+      return res.status(400).json({ success: false, error: 'Invalid item' });
+    }
+
+    const meetup = await Meetup.findById(id);
+    if (!meetup) {
+      return res.status(404).json({ success: false, error: 'Meetup not found' });
+    }
+
+    const rsvp = await MeetupRSVP.findOne({ _id: rsvp_id, meetup_id: id });
+    if (!rsvp) {
+      return res.status(404).json({ success: false, error: 'Registration not found' });
+    }
+
+    const weights = meetup.attendance_weights || {};
+    const pct =
+      item === 'physical' ? (weights.physical || 50)
+      : item === 'x' ? (weights.x_link || 25)
+      : (weights.instagram || 25);
+    const itemPoints = (meetup.points * pct) / 100;
+
+    let delta = 0;
+    let from = '';
+    let message = '';
+    const changes = { item, status };
+
+    // ───────────── PHYSICAL ─────────────
+    if (item === 'physical') {
+      if (!['PRESENT', 'ABSENT'].includes(status)) {
+        return res.status(400).json({ success: false, error: 'Status must be PRESENT or ABSENT' });
+      }
+
+      let attendance = await MeetupAttendance.findOne({ meetup_id: id, member_id: rsvp.member_id });
+      from = attendance?.attendance_status || 'PENDING';
+
+      if (status === 'PRESENT') {
+        if (rsvp.rsvp_status === 'NOT_GOING') {
+          return res.status(400).json({
+            success: false,
+            error: 'Member is marked Not Going. Change registration status first.',
+          });
+        }
+        if (attendance && attendance.attendance_status === 'PRESENT') {
+          return res.status(400).json({ success: false, error: 'Already marked present' });
+        }
+
+        if (attendance) {
+          attendance.attendance_status = 'PRESENT';
+          attendance.check_in_method = 'ADMIN_MANUAL';
+          attendance.marked_by_admin = true;
+          attendance.marked_by = req.admin._id;
+          attendance.marked_at = new Date();
+          attendance.admin_note = note || '';
+          attendance.points_awarded = itemPoints;
+          attendance.check_in_at = new Date();
+          await attendance.save();
+        } else {
+          attendance = await MeetupAttendance.create({
+            meetup_id: id,
+            member_id: rsvp.member_id,
+            attendance_status: 'PRESENT',
+            check_in_method: 'ADMIN_MANUAL',
+            marked_by_admin: true,
+            marked_by: req.admin._id,
+            marked_at: new Date(),
+            admin_note: note || '',
+            points_awarded: itemPoints,
+            check_in_at: new Date(),
+          });
+        }
+        await Meetup.findByIdAndUpdate(id, { $inc: { total_attended: 1 } });
+        delta = itemPoints;
+        message = `Marked present (+${itemPoints} pts)`;
+      } else {
+        if (!attendance || attendance.attendance_status !== 'PRESENT') {
+          return res.status(400).json({ success: false, error: 'Member is not marked present' });
+        }
+        const oldPoints = attendance.points_awarded || 0;
+        attendance.attendance_status = 'ABSENT';
+        attendance.marked_by_admin = true;
+        attendance.marked_by = req.admin._id;
+        attendance.marked_at = new Date();
+        attendance.admin_note = note || '';
+        attendance.points_awarded = 0;
+        await attendance.save();
+        await Meetup.updateOne({ _id: id, total_attended: { $gt: 0 } }, { $inc: { total_attended: -1 } });
+        delta = -oldPoints;
+        message = `Marked absent (-${oldPoints} pts)`;
+      }
+    }
+
+    // ───────────── X / INSTAGRAM ─────────────
+    else {
+      if (!['APPROVED', 'PENDING', 'REJECTED', 'NOT_SUBMITTED'].includes(status)) {
+        return res.status(400).json({ success: false, error: 'Invalid status' });
+      }
+
+      const F = {
+        link: `${item}_link`,
+        type: `${item}_post_type`,
+        status: `${item}_status`,
+        submitted: `${item}_submitted_at`,
+        reviewedAt: `${item}_reviewed_at`,
+        reviewedBy: `${item}_reviewed_by`,
+        reason: `${item}_rejection_reason`,
+      };
+      from = rsvp[F.status] || 'NOT_SUBMITTED';
+
+      const newLink = typeof link === 'string' ? link.trim() : '';
+      if (newLink) {
+        const linkOk = item === 'x'
+          ? /^https?:\/\/(www\.)?(twitter\.com|x\.com)\/.+/i.test(newLink)
+          : /^https?:\/\/(www\.)?instagram\.com\/.+/i.test(newLink);
+        if (!linkOk) {
+          return res.status(400).json({
+            success: false,
+            error: item === 'x' ? 'Invalid X/Twitter URL' : 'Invalid Instagram URL',
+          });
+        }
+      }
+
+      const allowedTypes = item === 'x' ? ['POST', 'QUOTE_POST', 'THREAD_POST'] : ['STORY', 'POST', 'REEL'];
+      if (post_type && !allowedTypes.includes(post_type)) {
+        return res.status(400).json({ success: false, error: 'Invalid post type' });
+      }
+
+      if (status === 'PENDING' && !newLink && !rsvp[F.link]) {
+        return res.status(400).json({ success: false, error: 'Link is required for Pending status' });
+      }
+
+      if (status === 'NOT_SUBMITTED') {
+        rsvp[F.link] = '';
+        rsvp[F.type] = '';
+        rsvp[F.submitted] = null;
+        rsvp[F.reviewedAt] = null;
+        rsvp[F.reviewedBy] = null;
+        rsvp[F.reason] = '';
+      } else {
+        if (newLink) rsvp[F.link] = newLink;
+        if (post_type) rsvp[F.type] = post_type;
+        if (!rsvp[F.submitted]) rsvp[F.submitted] = new Date();
+
+        if (status === 'PENDING') {
+          rsvp[F.reviewedAt] = null;
+          rsvp[F.reviewedBy] = null;
+          rsvp[F.reason] = '';
+        } else if (status === 'APPROVED') {
+          rsvp[F.reviewedAt] = new Date();
+          rsvp[F.reviewedBy] = req.admin._id;
+          rsvp[F.reason] = '';
+        } else if (status === 'REJECTED') {
+          rsvp[F.reviewedAt] = new Date();
+          rsvp[F.reviewedBy] = req.admin._id;
+          rsvp[F.reason] = reason || 'Rejected by admin';
+        }
+      }
+
+      rsvp[F.status] = status;
+
+      const wasApproved = from === 'APPROVED';
+      const nowApproved = status === 'APPROVED';
+      if (!wasApproved && nowApproved) delta = itemPoints;
+      else if (wasApproved && !nowApproved) delta = -itemPoints;
+
+      const label = item === 'x' ? 'X' : 'Instagram';
+      message = delta > 0
+        ? `${label} approved (+${delta} pts)`
+        : delta < 0
+        ? `${label} changed to ${status.toLowerCase().replace('_', ' ')} (${delta} pts)`
+        : `${label} updated`;
+      changes.link = rsvp[F.link];
+    }
+
+    if (delta) {
+      await adjustMeetupScore(rsvp.member_id, delta);
+    }
+
+    changes.from = from;
+    changes.points_delta = delta;
+    rsvp.last_edited_by = req.admin._id;
+    rsvp.last_edited_at = new Date();
+    rsvp.edit_history.push({
+      edited_by: req.admin._id,
+      edited_at: new Date(),
+      changes,
+      note: note || `Manual ${item} update`,
+    });
+    await rsvp.save();
+
+    await AuditLog.create({
+      admin_id: req.admin._id,
+      action: `MEETUP_MANUAL_${item.toUpperCase()}`,
+      target_type: 'MEETUP_RSVP',
+      target_id: rsvp._id,
+      new_value: { meetup_id: id, member_id: rsvp.member_id, ...changes },
+    });
+
+    res.json({ success: true, message, points_delta: delta, item, status });
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
   }
@@ -4114,6 +4349,7 @@ module.exports = {
   // ✅ NEW ADDITIONS
   getBroadcastTemplates,
   deleteMeetupRSVP,
+  manualUpdateRSVPItem,
   downloadMeetupRegistrationPDF,
   getDailyActivitySettings,
   updateDailyActivitySettings,

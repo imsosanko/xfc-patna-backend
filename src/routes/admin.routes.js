@@ -66,6 +66,7 @@ const {
   exportLeaderboard,
   // ✅ NEW
   deleteMeetupRSVP,
+  manualUpdateRSVPItem,
   downloadMeetupRegistrationPDF,
   getBroadcastTemplates,
   getDailyActivitySettings,
@@ -184,6 +185,7 @@ router.post('/meetups/:id/check-in', adminProtect, checkInMember);
 router.patch('/meetups/:id/rsvps/:rsvp_id/x-link/review', adminProtect, reviewXLink);
 router.patch('/meetups/:id/rsvps/:rsvp_id/instagram-link/review', adminProtect, reviewInstagramLink);
 router.patch('/meetups/:id/rsvps/:rsvp_id', adminProtect, editMemberRSVP);
+router.patch('/meetups/:id/rsvps/:rsvp_id/manual', adminProtect, manualUpdateRSVPItem);
 router.get('/meetups/:id/attendance-pdf', adminProtect, downloadMeetupAttendancePDF);
 // ✅ NEW Meetup Routes
 router.delete('/meetups/:id/rsvps/:rsvpId', adminProtect, deleteMeetupRSVP);
